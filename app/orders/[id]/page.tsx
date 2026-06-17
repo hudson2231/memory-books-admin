@@ -27,6 +27,10 @@ type OrderImage = {
   page_number: number;
   approved: boolean;
   error_message: string | null;
+  model_used: string | null;
+  prompt_version: string | null;
+  generated_at: string | null;
+  replaced_manually: boolean | null;
 };
 
 function canPreviewInBrowser(image: OrderImage) {
@@ -53,9 +57,11 @@ export default function OrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [deletingOrder, setDeletingOrder] = useState(false);
   const [approvingAll, setApprovingAll] = useState(false);
   const [regeneratingImageId, setRegeneratingImageId] = useState<string | null>(null);
   const [updatingApprovalId, setUpdatingApprovalId] = useState<string | null>(null);
+  const [manualReplacingImageId, setManualReplacingImageId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
 
   const generatedCount = images.filter((image) => image.generated_url).length;
@@ -189,6 +195,74 @@ export default function OrderDetailPage() {
     }
   }
 
+
+  async function deleteOrder() {
+    const confirmed = window.confirm(
+      "Delete this order from the dashboard? This removes the order rows from Supabase. Stored files may remain in Storage."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingOrder(true);
+    setMessage("Deleting order...");
+
+    try {
+      const response = await fetch(`/api/orders/${orderId}`, {
+        method: "DELETE",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.error || "Delete order failed.");
+        return;
+      }
+
+      window.location.href = "/";
+    } catch {
+      setMessage("Delete order failed.");
+    } finally {
+      setDeletingOrder(false);
+    }
+  }
+
+  async function replaceGeneratedImage(imageId: string, fileList: FileList | null, pageNumber: number) {
+    if (!fileList || fileList.length === 0) {
+      return;
+    }
+
+    const file = fileList[0];
+
+    setManualReplacingImageId(imageId);
+    setMessage(`Replacing generated page ${pageNumber}...`);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(`/api/order-images/${imageId}/replace-generated`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.error || "Manual replacement failed.");
+        return;
+      }
+
+      setMessage(`Page ${pageNumber} manually replaced. Review and approve it again.`);
+      await loadOrder();
+    } catch {
+      setMessage("Manual replacement failed.");
+    } finally {
+      setManualReplacingImageId(null);
+    }
+  }
+
   async function exportPdf() {
     setExportingPdf(true);
     setMessage("Exporting approved pages to PDF...");
@@ -299,7 +373,7 @@ export default function OrderDetailPage() {
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={generatePages}
-                disabled={generating || images.length === 0 || regeneratingImageId !== null || exportingPdf || approvingAll}
+                disabled={generating || images.length === 0 || regeneratingImageId !== null || exportingPdf || approvingAll || deletingOrder}
                 className="rounded-xl bg-white px-5 py-3 text-sm font-medium text-black hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {generating ? "Generating..." : "Generate All Pages"}
@@ -307,7 +381,7 @@ export default function OrderDetailPage() {
 
               <button
                 onClick={approveAllGenerated}
-                disabled={approvingAll || generatedCount === 0 || generating || regeneratingImageId !== null || exportingPdf}
+                disabled={approvingAll || generatedCount === 0 || generating || regeneratingImageId !== null || exportingPdf || deletingOrder}
                 className="rounded-xl border border-green-900 px-5 py-3 text-sm font-medium text-green-300 hover:border-green-400 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {approvingAll ? "Approving..." : "Approve All Generated"}
@@ -315,10 +389,18 @@ export default function OrderDetailPage() {
 
               <button
                 onClick={exportPdf}
-                disabled={exportingPdf || approvedCount === 0 || generating || regeneratingImageId !== null || approvingAll}
+                disabled={exportingPdf || approvedCount === 0 || generating || regeneratingImageId !== null || approvingAll || deletingOrder}
                 className="rounded-xl border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-100 hover:border-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {exportingPdf ? "Exporting PDF..." : "Export Approved PDF"}
+              </button>
+
+              <button
+                onClick={deleteOrder}
+                disabled={deletingOrder || generating || regeneratingImageId !== null || exportingPdf || approvingAll}
+                className="rounded-xl border border-red-900 px-5 py-3 text-sm font-medium text-red-300 hover:border-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deletingOrder ? "Deleting..." : "Delete Order"}
               </button>
             </div>
           </div>
@@ -464,6 +546,39 @@ export default function OrderDetailPage() {
                             </div>
                           )}
                         </div>
+
+                        <div className="mt-3 flex flex-col gap-2">
+                          <label className="w-fit cursor-pointer rounded-xl border border-neutral-700 px-4 py-2 text-sm text-neutral-200 hover:border-white">
+                            {manualReplacingImageId === image.id
+                              ? "Replacing..."
+                              : "Manual Replace Generated Page"}
+                            <input
+                              type="file"
+                              accept="image/*,.png,.jpg,.jpeg,.webp"
+                              className="hidden"
+                              disabled={manualReplacingImageId !== null || generating || regeneratingImageId !== null || exportingPdf || approvingAll || deletingOrder}
+                              onChange={(event) =>
+                                replaceGeneratedImage(
+                                  image.id,
+                                  event.target.files,
+                                  image.page_number
+                                )
+                              }
+                            />
+                          </label>
+
+                          <p className="text-xs text-neutral-500">
+                            Use this if you manually fix or upscale a page outside the app.
+                            Replacement pages must be reviewed and approved again.
+                          </p>
+                        </div>
+
+                        {image.model_used && (
+                          <p className="mt-2 text-xs text-neutral-500">
+                            Model: {image.model_used} · Prompt: {image.prompt_version || "unknown"}
+                            {image.replaced_manually ? " · manually replaced" : ""}
+                          </p>
+                        )}
 
                         {image.error_message && (
                           <p className="mt-2 text-sm text-red-400">

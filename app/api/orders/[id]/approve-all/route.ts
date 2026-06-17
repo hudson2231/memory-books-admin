@@ -23,6 +23,14 @@ export async function POST(
     );
   }
 
+  await supabaseAdmin
+    .from("orders")
+    .update({
+      status: "ready_for_pdf",
+      pdf_status: "not_exported",
+    })
+    .eq("id", orderId);
+
   return NextResponse.json({
     images: updatedImages || [],
     approved_count: updatedImages?.length || 0,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 const GEMINI_IMAGE_MODEL = "gemini-3-pro-image";
+const MEMORY_BOOKS_PROMPT_VERSION = "premium_people_first_v1";
 
 const MEMORY_BOOKS_PROMPT = `
 Create a finished, premium, printable adult colouring-book page from the uploaded customer photo.
@@ -275,6 +276,10 @@ export async function POST(
           generated_url: generatedUrl,
           status: "generated",
           error_message: null,
+          model_used: GEMINI_IMAGE_MODEL,
+          prompt_version: MEMORY_BOOKS_PROMPT_VERSION,
+          generated_at: new Date().toISOString(),
+          replaced_manually: false,
         })
         .eq("id", image.id)
         .select("*")
@@ -314,7 +319,7 @@ export async function POST(
   await supabaseAdmin
     .from("orders")
     .update({
-      status: newOrderStatus,
+      status: newOrderStatus === "generated" ? "needs_review" : newOrderStatus,
     })
     .eq("id", orderId);
 

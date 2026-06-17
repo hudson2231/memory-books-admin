@@ -1,6 +1,30 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
+async function updateOrderReviewStatus(orderId: string) {
+  const { data: images } = await supabaseAdmin
+    .from("order_images")
+    .select("generated_url, approved")
+    .eq("order_id", orderId);
+
+  const generatedImages = (images || []).filter((image) => image.generated_url);
+  const approvedImages = generatedImages.filter((image) => image.approved);
+
+  let status = "needs_review";
+
+  if (generatedImages.length > 0 && approvedImages.length === generatedImages.length) {
+    status = "ready_for_pdf";
+  }
+
+  await supabaseAdmin
+    .from("orders")
+    .update({
+      status,
+      pdf_status: "not_exported",
+    })
+    .eq("id", orderId);
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }
@@ -26,6 +50,8 @@ export async function POST(
         { status: 404 }
       );
     }
+
+    await updateOrderReviewStatus(image.order_id);
 
     return NextResponse.json({ image });
   } catch {

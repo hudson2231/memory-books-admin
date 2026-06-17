@@ -78,6 +78,14 @@ function getProductionStatus(order: Order) {
 }
 
 export default function Home() {
+  async function logout() {
+    await fetch("/api/admin/logout", {
+      method: "POST",
+    });
+
+    window.location.href = "/login";
+  }
+
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [pageCount, setPageCount] = useState("20");
@@ -235,10 +243,19 @@ export default function Home() {
           <h1 className="mt-3 text-4xl font-semibold">
             Production Dashboard
           </h1>
-          <p className="mt-3 max-w-2xl text-neutral-400">
-            Upload customer photos, generate colouring-book pages, review the
-            results, approve pages, and export print-ready PDFs.
-          </p>
+          <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <p className="max-w-2xl text-neutral-400">
+              Upload customer photos, generate colouring-book pages, review the
+              results, approve pages, and export print-ready PDFs.
+            </p>
+
+            <button
+              onClick={logout}
+              className="w-fit rounded-xl border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-white hover:text-white"
+            >
+              Logout
+            </button>
+          </div>
         </div>
 
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
