@@ -15,6 +15,7 @@ export async function middleware(request: NextRequest) {
     "/login",
     "/api/admin/login",
     "/api/shopify/order-paid",
+    "/api/customer-upload",
   ];
 
   const isPublicPath = publicPaths.some((publicPath) =>

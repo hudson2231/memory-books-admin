@@ -144,6 +144,8 @@ function collectUploadUrls(input: unknown, urls = new Set<string>()) {
       if (
         lower.includes("uploadkit") ||
         lower.includes("cdn.shopify") ||
+        lower.includes("supabase.co/storage") ||
+        lower.includes("/storage/v1/object/public/originals/") ||
         lower.includes("image=true") ||
         lower.includes("download.html")
       ) {
@@ -240,6 +242,8 @@ function extractCandidatesFromHtml(html: string, baseUrl: string) {
     return (
       lower.includes("uploadkit") ||
       lower.includes("cdn.shopify") ||
+      lower.includes("supabase.co/storage") ||
+      lower.includes("/storage/v1/object/public/originals/") ||
       lower.includes("image") ||
       /\.(jpg|jpeg|png|webp|heic|heif|gif|bmp|tif|tiff|avif)(\?|$)/i.test(lower)
     );
