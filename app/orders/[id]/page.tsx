@@ -20,6 +20,7 @@ type OrderImage = {
   id: string;
   order_id: string;
   original_url: string;
+  preview_url: string | null;
   original_filename: string | null;
   mime_type: string | null;
   generated_url: string | null;
@@ -33,20 +34,6 @@ type OrderImage = {
   replaced_manually: boolean | null;
 };
 
-function canPreviewInBrowser(image: OrderImage) {
-  const mimeType = image.mime_type || "";
-  const url = image.original_url.toLowerCase();
-
-  if (mimeType.includes("heic") || mimeType.includes("heif")) {
-    return false;
-  }
-
-  if (url.includes(".heic") || url.includes(".heif")) {
-    return false;
-  }
-
-  return true;
-}
 
 export default function OrderDetailPage() {
   const params = useParams();
@@ -418,7 +405,8 @@ export default function OrderDetailPage() {
           ) : (
             <div className="mt-6 space-y-6">
               {images.map((image) => {
-                const previewable = canPreviewInBrowser(image);
+                const originalPreviewUrl =
+                  image.preview_url || image.original_url;
                 const isRegeneratingThisImage = regeneratingImageId === image.id;
                 const isUpdatingThisApproval = updatingApprovalId === image.id;
 
@@ -489,42 +477,11 @@ export default function OrderDetailPage() {
                         </p>
 
                         <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
-                          {previewable ? (
-                            <img
-                              src={image.original_url}
-                              alt={`Original page ${image.page_number}`}
-                              className="h-auto w-full"
-                            />
-                          ) : (
-                            <div className="flex aspect-[4/5] flex-col items-center justify-center p-6 text-center">
-                              <p className="text-lg font-medium text-white">
-                                HEIC original uploaded
-                              </p>
-                              <p className="mt-2 max-w-sm text-sm text-neutral-400">
-                                This file uploaded correctly, but your browser
-                                cannot preview HEIC originals directly.
-                              </p>
-
-                              <div className="mt-4 rounded-xl bg-neutral-800 px-4 py-3 text-left text-xs text-neutral-300">
-                                <p>
-                                  Filename:{" "}
-                                  {image.original_filename || "Unknown"}
-                                </p>
-                                <p>
-                                  Type: {image.mime_type || "Unknown"}
-                                </p>
-                              </div>
-
-                              <a
-                                href={image.original_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="mt-5 rounded-xl bg-white px-4 py-2 text-sm font-medium text-black hover:bg-neutral-200"
-                              >
-                                Open original file
-                              </a>
-                            </div>
-                          )}
+                          <img
+                            src={originalPreviewUrl}
+                            alt={`Original page ${image.page_number}`}
+                            className="h-auto w-full object-contain"
+                          />
                         </div>
                       </div>
 

@@ -19,6 +19,7 @@ type UploadFile = {
   contentType: string;
   filename: string;
   sourceUrl: string;
+  previewUrl: string | null;
 };
 
 function verifyShopifyHmac(rawBody: string, hmacHeader: string | null) {
@@ -117,6 +118,37 @@ function mimeFromUrl(uploadUrl: string) {
   }
 
   return null;
+}
+
+function uploadcarePreviewUrl(sourceUrl: string, contentType: string) {
+  const normalizedType = contentType.toLowerCase();
+
+  if (!normalizedType.includes("heic") && !normalizedType.includes("heif")) {
+    return null;
+  }
+
+  try {
+    const url = new URL(sourceUrl);
+
+    if (!url.hostname.includes("ucarecdn.com")) {
+      return null;
+    }
+
+    const uuid = url.pathname.split("/").filter(Boolean)[0];
+
+    if (
+      !uuid ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        uuid
+      )
+    ) {
+      return null;
+    }
+
+    return `https://ucarecdn.com/${uuid}/-/preview/1600x1600/-/format/jpeg/`;
+  } catch {
+    return null;
+  }
 }
 
 function extractUrlsFromText(value: string) {
@@ -323,6 +355,10 @@ async function downloadUploadFile(uploadUrl: string, fallbackIndex: number): Pro
         contentType: contentType.split(";")[0],
         filename: filenameFromUrl(candidate, fallbackFilename),
         sourceUrl: candidate,
+        previewUrl: uploadcarePreviewUrl(
+          candidate,
+          contentType.split(";")[0]
+        ),
       };
     }
 
@@ -350,6 +386,7 @@ async function downloadUploadFile(uploadUrl: string, fallbackIndex: number): Pro
         contentType: urlMime,
         filename: fallbackFilename,
         sourceUrl: candidate,
+        previewUrl: uploadcarePreviewUrl(candidate, urlMime),
       };
     }
   }
@@ -552,6 +589,7 @@ export async function POST(request: Request) {
           .insert({
             order_id: createdOrder.id,
             original_url: publicUrlData.publicUrl,
+            preview_url: file.previewUrl,
             original_filename: file.filename,
             mime_type: file.contentType,
             page_number: index + 1,
