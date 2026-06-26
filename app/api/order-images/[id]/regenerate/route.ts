@@ -95,6 +95,30 @@ QUALITY DECISION RULES:
 - The final page should look sellable, finished, premium, and ready to include in a printed personalised colouring book.
 `.trim();
 
+const MAX_REGENERATION_INSTRUCTION_LENGTH = 800;
+
+function buildRegenerationPrompt(instruction: string | null) {
+  if (!instruction) {
+    return MEMORY_BOOKS_PROMPT;
+  }
+
+  return `${MEMORY_BOOKS_PROMPT}
+
+SCOPED REGENERATION REQUEST:
+The instruction below applies only to this single page and this single regeneration attempt.
+
+Make only the requested correction.
+Preserve every successful element from the existing result.
+Preserve facial identity, facial proportions, expressions, pose, body proportions, composition, clothing, perspective, and the number of people.
+Do not redesign unrelated areas.
+Do not weaken or replace any requirement in the master prompt above.
+If the requested correction conflicts with the master prompt, follow the master prompt.
+Return one complete finished colouring-book page, not an explanation.
+
+Requested correction:
+${instruction}`;
+}
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -129,6 +153,27 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   const { id: imageId } = await context.params;
+
+  let regenerationInstruction: string | null = null;
+
+  try {
+    const body = await request.json();
+    const rawInstruction =
+      typeof body?.instruction === "string" ? body.instruction.trim() : "";
+
+    if (rawInstruction.length > MAX_REGENERATION_INSTRUCTION_LENGTH) {
+      return NextResponse.json(
+        {
+          error: `Regeneration instruction must be ${MAX_REGENERATION_INSTRUCTION_LENGTH} characters or fewer.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    regenerationInstruction = rawInstruction || null;
+  } catch {
+    regenerationInstruction = null;
+  }
 
   const apiKey = process.env.GEMINI_API_KEY?.trim();
 
@@ -184,6 +229,38 @@ export async function POST(
     const originalBase64 = Buffer.from(originalArrayBuffer).toString("base64");
 
     const mimeType = image.mime_type || getMimeTypeFromUrl(image.original_url);
+    const promptText = buildRegenerationPrompt(regenerationInstruction);
+
+    let previousGeneratedPart:
+      | {
+          inline_data: {
+            mime_type: string;
+            data: string;
+          };
+        }
+      | null = null;
+
+    if (regenerationInstruction && image.generated_url) {
+      try {
+        const previousResponse = await fetch(image.generated_url);
+
+        if (previousResponse.ok) {
+          const previousArrayBuffer = await previousResponse.arrayBuffer();
+          const previousBase64 = Buffer.from(previousArrayBuffer).toString(
+            "base64"
+          );
+
+          previousGeneratedPart = {
+            inline_data: {
+              mime_type: "image/png",
+              data: previousBase64,
+            },
+          };
+        }
+      } catch {
+        previousGeneratedPart = null;
+      }
+    }
 
     const geminiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -197,7 +274,10 @@ export async function POST(
             {
               parts: [
                 {
-                  text: MEMORY_BOOKS_PROMPT,
+                  text: promptText,
+                },
+                {
+                  text: "SOURCE CUSTOMER PHOTO — preserve identity and factual content from this image.",
                 },
                 {
                   inline_data: {
@@ -205,6 +285,14 @@ export async function POST(
                     data: originalBase64,
                   },
                 },
+                ...(previousGeneratedPart
+                  ? [
+                      {
+                        text: "CURRENT GENERATED PAGE — use this only to identify the requested defect and preserve everything that already works.",
+                      },
+                      previousGeneratedPart,
+                    ]
+                  : []),
               ],
             },
           ],
@@ -259,12 +347,36 @@ export async function POST(
 
     const generatedUrl = publicUrlData.publicUrl;
 
+    const existingHistory = Array.isArray(image.regeneration_history)
+      ? image.regeneration_history
+      : [];
+
+    const regenerationHistory = regenerationInstruction
+      ? [
+          ...existingHistory,
+          {
+            instruction: regenerationInstruction,
+            created_at: new Date().toISOString(),
+            previous_generated_url: image.generated_url || null,
+            new_generated_url: generatedUrl,
+            model: GEMINI_IMAGE_MODEL,
+            prompt_version: MEMORY_BOOKS_PROMPT_VERSION,
+          },
+        ]
+      : existingHistory;
+
     const { data: updatedImage, error: updateError } = await supabaseAdmin
       .from("order_images")
       .update({
         generated_url: generatedUrl,
         status: "generated",
+        approved: false,
         error_message: null,
+        model_used: GEMINI_IMAGE_MODEL,
+        prompt_version: MEMORY_BOOKS_PROMPT_VERSION,
+        generated_at: new Date().toISOString(),
+        last_regeneration_instruction: regenerationInstruction,
+        regeneration_history: regenerationHistory,
       })
       .eq("id", image.id)
       .select("*")
@@ -285,6 +397,7 @@ export async function POST(
     return NextResponse.json({
       image: updatedImage,
       model: GEMINI_IMAGE_MODEL,
+      regeneration_instruction: regenerationInstruction,
     });
   } catch (error) {
     const message =

@@ -32,6 +32,13 @@ type OrderImage = {
   prompt_version: string | null;
   generated_at: string | null;
   replaced_manually: boolean | null;
+  last_regeneration_instruction: string | null;
+  regeneration_history: Array<{
+    instruction?: string;
+    created_at?: string;
+    previous_generated_url?: string | null;
+    new_generated_url?: string | null;
+  }> | null;
 };
 
 
@@ -49,6 +56,7 @@ export default function OrderDetailPage() {
   const [regeneratingImageId, setRegeneratingImageId] = useState<string | null>(null);
   const [updatingApprovalId, setUpdatingApprovalId] = useState<string | null>(null);
   const [manualReplacingImageId, setManualReplacingImageId] = useState<string | null>(null);
+  const [regenerationInstructions, setRegenerationInstructions] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
 
   const generatedCount = images.filter((image) => image.generated_url).length;
@@ -103,12 +111,27 @@ export default function OrderDetailPage() {
   }
 
   async function regenerateSinglePage(imageId: string, pageNumber: number) {
+    const instruction = (regenerationInstructions[imageId] || "").trim();
+
+    if (instruction.length > 800) {
+      setMessage("Regeneration instruction must be 800 characters or fewer.");
+      return;
+    }
+
     setRegeneratingImageId(imageId);
-    setMessage(`Regenerating page ${pageNumber}...`);
+    setMessage(
+      instruction
+        ? `Regenerating page ${pageNumber} with your scoped correction...`
+        : `Regenerating page ${pageNumber}...`
+    );
 
     try {
       const response = await fetch(`/api/order-images/${imageId}/regenerate`, {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ instruction }),
       });
 
       const data = await response.json();
@@ -119,7 +142,15 @@ export default function OrderDetailPage() {
         return;
       }
 
-      setMessage(`Page ${pageNumber} regenerated successfully.`);
+      setMessage(
+        instruction
+          ? `Page ${pageNumber} regenerated with the requested correction.`
+          : `Page ${pageNumber} regenerated successfully.`
+      );
+      setRegenerationInstructions((current) => ({
+        ...current,
+        [imageId]: "",
+      }));
       await loadOrder();
     } catch {
       setMessage(`Page ${pageNumber} regeneration failed.`);
@@ -454,19 +485,7 @@ export default function OrderDetailPage() {
                           Reject
                         </button>
 
-                        <button
-                          onClick={() =>
-                            regenerateSinglePage(image.id, image.page_number)
-                          }
-                          disabled={generating || regeneratingImageId !== null || exportingPdf || approvingAll}
-                          className="rounded-xl border border-neutral-700 px-4 py-2 text-sm text-neutral-200 hover:border-white disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {isRegeneratingThisImage
-                            ? "Regenerating..."
-                            : image.generated_url
-                              ? "Regenerate Page"
-                              : "Generate Page"}
-                        </button>
+
                       </div>
                     </div>
 
@@ -500,6 +519,88 @@ export default function OrderDetailPage() {
                           ) : (
                             <div className="flex aspect-[4/5] items-center justify-center text-sm text-neutral-500">
                               Not generated yet
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="mt-4 rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+                          <label
+                            htmlFor={`regeneration-instruction-${image.id}`}
+                            className="text-sm font-medium text-neutral-200"
+                          >
+                            Regeneration correction
+                            <span className="ml-2 font-normal text-neutral-500">
+                              optional
+                            </span>
+                          </label>
+
+                          <p className="mt-1 text-xs leading-5 text-neutral-500">
+                            Describe only the defect that needs fixing. The master
+                            prompt stays unchanged, and the correction applies only
+                            to this page and this attempt.
+                          </p>
+
+                          <textarea
+                            id={`regeneration-instruction-${image.id}`}
+                            value={regenerationInstructions[image.id] || ""}
+                            maxLength={800}
+                            rows={3}
+                            disabled={
+                              generating ||
+                              regeneratingImageId !== null ||
+                              exportingPdf ||
+                              approvingAll ||
+                              deletingOrder
+                            }
+                            onChange={(event) =>
+                              setRegenerationInstructions((current) => ({
+                                ...current,
+                                [image.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="Example: Keep every face and the composition unchanged. Remove the solid black fill from all head hair and replace it with clean outline and strand detail, leaving colourable white space."
+                            className="mt-3 w-full resize-y rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-sm text-white outline-none placeholder:text-neutral-600 focus:border-neutral-400 disabled:cursor-not-allowed disabled:opacity-50"
+                          />
+
+                          <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="text-xs text-neutral-600">
+                              {(regenerationInstructions[image.id] || "").length}/800
+                            </p>
+
+                            <button
+                              onClick={() =>
+                                regenerateSinglePage(
+                                  image.id,
+                                  image.page_number
+                                )
+                              }
+                              disabled={
+                                generating ||
+                                regeneratingImageId !== null ||
+                                exportingPdf ||
+                                approvingAll ||
+                                deletingOrder
+                              }
+                              className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {isRegeneratingThisImage
+                                ? "Regenerating..."
+                                : (regenerationInstructions[image.id] || "").trim()
+                                  ? "Regenerate With Correction"
+                                  : image.generated_url
+                                    ? "Regenerate Page"
+                                    : "Generate Page"}
+                            </button>
+                          </div>
+
+                          {image.last_regeneration_instruction && (
+                            <div className="mt-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2">
+                              <p className="text-xs font-medium text-neutral-400">
+                                Last correction used
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-neutral-500">
+                                {image.last_regeneration_instruction}
+                              </p>
                             </div>
                           )}
                         </div>
