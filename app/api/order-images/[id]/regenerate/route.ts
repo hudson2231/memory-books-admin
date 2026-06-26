@@ -52,14 +52,19 @@ LIKENESS AND SUBJECT PRESERVATION:
 - do not turn people into caricatures
 - do not make faces creepy, distorted, overly stylised, or generic
 
-BACKGROUND HANDLING:
-- keep background details that make the scene recognisable and interesting
-- simplify messy or distracting clutter
-- convert background structures into clean, colourable outlines
-- remove photographic darkness, haze, flash glare, grain, blur, and muddy shadows
-- do not leave huge empty blank areas unless the original composition genuinely needs breathing room
-- background should support the people, not dominate them
-- use clean architectural/object outlines where useful, but avoid excessive background detail that competes with faces
+BACKGROUND AND SETTING PRESERVATION:
+- preserve the recognisable identity and overall structure of the original setting
+- retain the major environmental anchors that explain where the people are, such as walls, windows, doors, furniture, booths, tables, chairs, framed pictures, aircraft seats, cabin windows, ceiling patterns, crowds, paths, road edges, buildings, skylines, and horizon lines
+- preserve the approximate position, scale, perspective, and spatial relationship of important background elements
+- simplify fine texture, photographic noise, repetitive clutter, tiny decorations, and irrelevant micro-detail, but do not erase meaningful scene structure
+- convert important background features into clean, colourable outlines with open white interior space
+- do not replace a meaningful background with large empty white areas merely because the source is dark, blurry, crowded, or low contrast
+- for dark or low-light photographs, carefully infer visible scene boundaries and preserve useful environmental cues as simplified outlines, including distant lights, architecture, paths, crowd placement, furniture, and room geometry
+- preserve background people when they contribute meaningfully to the scene, but render them with less detail than the main subjects so they do not compete with the faces
+- remove photographic darkness, haze, flash glare, colour casts, grain, blur, and muddy shadows without removing the objects or structures they belong to
+- maintain a clear depth hierarchy: main people most detailed, important setting elements moderately detailed, minor clutter simplified
+- the background must support the people without dominating them, but the finished page should still clearly feel like the same real place and moment
+- prioritise structural accuracy and setting identity over decorative detail
 
 STRICTLY DO NOT CREATE:
 - colour
