@@ -181,30 +181,62 @@ function collectUploadUrls(input: unknown, urls = new Set<string>()) {
 }
 
 function buildUploadUrlCandidates(uploadUrl: string) {
-  const candidates = new Set<string>();
-  candidates.add(uploadUrl);
+  const candidates: string[] = [];
+
+  function addCandidate(value: string | null | undefined) {
+    if (value && !candidates.includes(value)) {
+      candidates.push(value);
+    }
+  }
 
   try {
     const url = new URL(uploadUrl);
 
+    const uploadcareUuid = url.searchParams.get("uu");
+    const decodedFilename = decodeBase64UrlParam(
+      url.searchParams.get("fi")
+    );
+
+    if (
+      uploadcareUuid &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        uploadcareUuid
+      )
+    ) {
+      if (decodedFilename) {
+        addCandidate(
+          `https://ucarecdn.com/${uploadcareUuid}/${encodeURIComponent(
+            decodedFilename
+          )}`
+        );
+      }
+
+      addCandidate(`https://ucarecdn.com/${uploadcareUuid}/`);
+    }
+
     if (url.pathname.endsWith("/download.html")) {
       const direct = new URL(url.toString());
-      direct.pathname = direct.pathname.replace(/\/download\.html$/, "/download");
-      candidates.add(direct.toString());
+      direct.pathname = direct.pathname.replace(
+        /\/download\.html$/,
+        "/download"
+      );
+      addCandidate(direct.toString());
     }
 
     const raw = new URL(url.toString());
     raw.searchParams.set("download", "1");
-    candidates.add(raw.toString());
+    addCandidate(raw.toString());
 
     const original = new URL(url.toString());
     original.searchParams.set("raw", "1");
-    candidates.add(original.toString());
+    addCandidate(original.toString());
   } catch {
-    // ignore
+    // Keep the original URL as the final fallback.
   }
 
-  return Array.from(candidates);
+  addCandidate(uploadUrl);
+
+  return candidates;
 }
 
 function extractCandidatesFromHtml(html: string, baseUrl: string) {
