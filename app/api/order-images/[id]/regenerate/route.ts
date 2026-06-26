@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 const GEMINI_IMAGE_MODEL = "gemini-3-pro-image";
 const MEMORY_BOOKS_PROMPT_VERSION = "premium_people_first_v1";
+const MAX_REGENERATION_INSTRUCTION_LENGTH = 800;
 
 const MEMORY_BOOKS_PROMPT = `
 Create a finished, premium, printable adult colouring-book page from the uploaded customer photo.
@@ -95,28 +96,84 @@ QUALITY DECISION RULES:
 - The final page should look sellable, finished, premium, and ready to include in a printed personalised colouring book.
 `.trim();
 
-const MAX_REGENERATION_INSTRUCTION_LENGTH = 800;
+function buildRegenerationBooster(instruction: string | null) {
+  const normalized = (instruction || "").toLowerCase();
+
+  const rules: string[] = [
+    "- Preserve all successful facial identity, expressions, pose, composition, perspective, clothing silhouette, and overall scene layout from the current best result unless the correction explicitly requires a change.",
+    "- Apply the correction strongly and visibly for this regeneration attempt.",
+    "- Do not make the page worse in unrelated areas while fixing the requested defect.",
+    "- Rebuild weak areas cleanly instead of tracing or patching them in a messy way.",
+    "- Keep the result premium, clean, colourable, and print-ready.",
+    "- Do not use large solid black filled regions in hair, clothing, skin, furniture, objects, or background areas.",
+    "- Use colourable white space with black outlines and selective interior detail lines instead of heavy black fill.",
+    "- Tiny controlled black accents are allowed only where genuinely useful, such as pupils, eyelashes, nostrils, eyebrow mass, and very small moustache or beard accents.",
+  ];
+
+  if (/(hair|filled|fill|black|dark|shadow)/.test(normalized)) {
+    rules.push(
+      "- Replace any filled black hair or shadow blocks with clean outer contours and a few interior strand/detail lines, leaving most of the area white and colourable."
+    );
+  }
+
+  if (/(background|clutter|busy|messy|wall|ceiling|room|plane|cabin|table|seat|window|interior)/.test(normalized)) {
+    rules.push(
+      "- Simplify background clutter aggressively. Keep only the key scene-defining structures and objects as clean outline shapes that support the people."
+    );
+  }
+
+  if (/(hand|hands|finger|fingers|arm|arms|anatomy|body|limb)/.test(normalized)) {
+    rules.push(
+      "- Correct anatomy issues, especially hands, fingers, arms, and overlapping body shapes, so they read clearly and naturally."
+    );
+  }
+
+  if (/(face|eyes|nose|mouth|likeness|expression)/.test(normalized)) {
+    rules.push(
+      "- Preserve the existing face likeness extremely closely and do not stylise, age, beautify, or distort the expressions."
+    );
+  }
+
+  return rules.join("\n");
+}
 
 function buildRegenerationPrompt(instruction: string | null) {
   if (!instruction) {
-    return MEMORY_BOOKS_PROMPT;
+    return `${MEMORY_BOOKS_PROMPT}
+
+REGENERATION MODE:
+You are revising a previously generated colouring-book page.
+Use the original customer photo as the ground truth.
+Use the previous generated page only as a continuity reference for what already works.
+
+NON-NEGOTIABLE REGENERATION RULES:
+- Preserve the strongest existing facial likeness, expressions, composition, and pose.
+- Fix weak areas cleanly without degrading successful areas.
+- Avoid large solid black filled areas.
+- Keep the page clean, colourable, premium, and print-ready.
+
+Return one complete finished colouring-book page only.`;
   }
 
   return `${MEMORY_BOOKS_PROMPT}
 
-SCOPED REGENERATION REQUEST:
-The instruction below applies only to this single page and this single regeneration attempt.
+REGENERATION MODE:
+You are revising a previously generated colouring-book page.
+Use the original customer photo as the ground truth.
+Use the previous generated page only as a continuity reference for what already works.
 
-Make only the requested correction.
-Preserve every successful element from the existing result.
-Preserve facial identity, facial proportions, expressions, pose, body proportions, composition, clothing, perspective, and the number of people.
-Do not redesign unrelated areas.
-Do not weaken or replace any requirement in the master prompt above.
-If the requested correction conflicts with the master prompt, follow the master prompt.
-Return one complete finished colouring-book page, not an explanation.
+NON-NEGOTIABLE REGENERATION RULES:
+${buildRegenerationBooster(instruction)}
 
-Requested correction:
-${instruction}`;
+SCOPED FIX REQUEST:
+${instruction}
+
+EXECUTION INSTRUCTIONS:
+- Apply the requested fix strongly and visibly.
+- Do not leave the defect partially fixed.
+- Preserve all successful areas unless they must be adjusted to complete the fix.
+- If the user request is short or vague, infer the most direct correction and apply it decisively.
+- Return one complete finished colouring-book page only.`;
 }
 
 function slugify(value: string) {
@@ -240,7 +297,7 @@ export async function POST(
         }
       | null = null;
 
-    if (regenerationInstruction && image.generated_url) {
+    if (image.generated_url) {
       try {
         const previousResponse = await fetch(image.generated_url);
 
@@ -277,7 +334,7 @@ export async function POST(
                   text: promptText,
                 },
                 {
-                  text: "SOURCE CUSTOMER PHOTO — preserve identity and factual content from this image.",
+                  text: "SOURCE CUSTOMER PHOTO — this is the ground truth. Preserve the real people, likeness, scene, and important content from this image.",
                 },
                 {
                   inline_data: {
@@ -288,7 +345,7 @@ export async function POST(
                 ...(previousGeneratedPart
                   ? [
                       {
-                        text: "CURRENT GENERATED PAGE — use this only to identify the requested defect and preserve everything that already works.",
+                        text: "CURRENT GENERATED PAGE — use this only as a continuity reference for what already works, especially facial likeness, composition, and pose. Fix the requested defect without degrading successful areas.",
                       },
                       previousGeneratedPart,
                     ]
@@ -327,7 +384,6 @@ export async function POST(
     const orderSlug = slugify(order.customer_name || "order");
     const shortOrderId = order.id.slice(0, 8);
     const orderFolder = `${orderSlug}-${shortOrderId}`;
-
     const generatedPath = `${orderFolder}/page-${image.page_number}-generated-${Date.now()}.png`;
 
     const { error: uploadError } = await supabaseAdmin.storage
@@ -418,9 +474,6 @@ export async function POST(
       })
       .eq("id", order.id);
 
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
