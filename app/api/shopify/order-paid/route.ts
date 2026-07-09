@@ -449,6 +449,29 @@ function inferPageCount(order: Record<string, any>) {
   return 20;
 }
 
+function inferProductType(order: Record<string, any>) {
+  const lineItem = getPrimaryLineItem(order);
+
+  const variantTitle = safeText(lineItem.variant_title);
+  const title = safeText(lineItem.title);
+  const name = safeText(lineItem.name);
+  const productType = safeText(lineItem.product_type);
+  const combined = `${variantTitle || ""} ${title || ""} ${name || ""} ${productType || ""}`.toLowerCase();
+
+  if (
+    combined.includes("story book") ||
+    combined.includes("storybook") ||
+    combined.includes("story-book") ||
+    combined.includes("clip art") ||
+    combined.includes("clip-art") ||
+    combined.includes("caption")
+  ) {
+    return "story_book";
+  }
+
+  return "colouring_book";
+}
+
 function mapAddress(address: ShopifyAddress | null | undefined, prefix: "shipping" | "billing") {
   return {
     [`${prefix}_name`]: safeText(address?.name),
@@ -509,6 +532,7 @@ export async function POST(request: Request) {
     const customerEmail = getCustomerEmail(order);
     const lineItem = getPrimaryLineItem(order);
     const pageCount = inferPageCount(order);
+    const productType = inferProductType(order);
 
     const uploadUrls = Array.from(collectUploadUrls(order.line_items || []));
 
@@ -516,6 +540,7 @@ export async function POST(request: Request) {
       customer_name: customerName,
       customer_email: customerEmail,
       page_count: pageCount,
+      product_type: productType,
       status: uploadUrls.length > 0 ? "shopify_imported" : "missing_uploads",
       shopify_order_id: shopifyOrderId,
       shopify_order_name: shopifyOrderName,

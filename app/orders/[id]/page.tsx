@@ -9,6 +9,7 @@ type Order = {
   customer_name: string;
   customer_email: string;
   page_count: number;
+  product_type: string | null;
   status: string;
   created_at: string;
   pdf_url: string | null;
@@ -24,6 +25,8 @@ type OrderImage = {
   original_filename: string | null;
   mime_type: string | null;
   generated_url: string | null;
+  caption_text: string | null;
+  caption_source: string | null;
   status: string;
   page_number: number;
   approved: boolean;
@@ -57,11 +60,16 @@ export default function OrderDetailPage() {
   const [updatingApprovalId, setUpdatingApprovalId] = useState<string | null>(null);
   const [manualReplacingImageId, setManualReplacingImageId] = useState<string | null>(null);
   const [regenerationInstructions, setRegenerationInstructions] = useState<Record<string, string>>({});
+  const [captionDrafts, setCaptionDrafts] = useState<Record<string, string>>({});
+  const [savingCaptionImageId, setSavingCaptionImageId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
 
   const generatedCount = images.filter((image) => image.generated_url).length;
   const approvedCount = images.filter((image) => image.approved).length;
   const failedCount = images.filter((image) => image.status === "failed").length;
+  const productType = order?.product_type === "story_book" ? "story_book" : "colouring_book";
+  const isStoryBook = productType === "story_book";
+  const productLabel = isStoryBook ? "Story Book" : "Colouring Book";
 
   async function loadOrder() {
     setLoading(true);
@@ -77,7 +85,19 @@ export default function OrderDetailPage() {
       }
 
       setOrder(data.order);
-      setImages(data.images || []);
+      const loadedImages = data.images || [];
+      setImages(loadedImages);
+      setCaptionDrafts((current) => {
+        const next = { ...current };
+
+        for (const image of loadedImages) {
+          if (next[image.id] === undefined) {
+            next[image.id] = image.caption_text || "";
+          }
+        }
+
+        return next;
+      });
     } catch {
       setMessage("Failed to load order.");
     } finally {
@@ -107,6 +127,42 @@ export default function OrderDetailPage() {
       setMessage("Generation failed.");
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function saveCaption(imageId: string, pageNumber: number) {
+    const caption = (captionDrafts[imageId] || "").trim();
+
+    if (caption.length > 180) {
+      setMessage("Caption must be 180 characters or fewer.");
+      return;
+    }
+
+    setSavingCaptionImageId(imageId);
+    setMessage(`Saving caption for page ${pageNumber}...`);
+
+    try {
+      const response = await fetch(`/api/order-images/${imageId}/caption`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ caption_text: caption }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.error || `Caption save failed for page ${pageNumber}.`);
+        return;
+      }
+
+      setMessage(`Caption saved for page ${pageNumber}.`);
+      await loadOrder();
+    } catch {
+      setMessage(`Caption save failed for page ${pageNumber}.`);
+    } finally {
+      setSavingCaptionImageId(null);
     }
   }
 
@@ -357,7 +413,8 @@ export default function OrderDetailPage() {
             </div>
 
             <div className="rounded-2xl border border-neutral-800 bg-neutral-900 px-5 py-4 text-sm text-neutral-300">
-              <p>{order.page_count} page book</p>
+              <p>{order.page_count} page {productLabel}</p>
+              <p>Product: {productLabel}</p>
               <p>Status: {order.status}</p>
               <p>Images: {images.length}</p>
               <p>Generated: {generatedCount}/{images.length}</p>
@@ -394,7 +451,7 @@ export default function OrderDetailPage() {
                 disabled={generating || images.length === 0 || regeneratingImageId !== null || exportingPdf || approvingAll || deletingOrder}
                 className="rounded-xl bg-white px-5 py-3 text-sm font-medium text-black hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {generating ? "Generating..." : "Generate All Pages"}
+                {generating ? "Generating..." : isStoryBook ? "Generate Story Pages" : "Generate All Pages"}
               </button>
 
               <button
@@ -410,7 +467,7 @@ export default function OrderDetailPage() {
                 disabled={exportingPdf || approvedCount === 0 || generating || regeneratingImageId !== null || approvingAll || deletingOrder}
                 className="rounded-xl border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-100 hover:border-white disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {exportingPdf ? "Exporting PDF..." : "Export Approved PDF"}
+                {exportingPdf ? "Exporting PDF..." : isStoryBook ? "Export Story Book PDF" : "Export Approved PDF"}
               </button>
 
               <button
@@ -506,7 +563,7 @@ export default function OrderDetailPage() {
 
                       <div>
                         <p className="mb-2 text-sm text-neutral-400">
-                          Generated Colouring Page
+                          {isStoryBook ? "Generated Story Page" : "Generated Colouring Page"}
                         </p>
 
                         <div className="overflow-hidden rounded-xl border border-neutral-800 bg-white">
@@ -522,6 +579,71 @@ export default function OrderDetailPage() {
                             </div>
                           )}
                         </div>
+
+                        {isStoryBook && (
+                          <div className="mt-4 rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+                            <label
+                              htmlFor={`caption-${image.id}`}
+                              className="text-sm font-medium text-neutral-200"
+                            >
+                              Story Book caption
+                              <span className="ml-2 font-normal text-neutral-500">
+                                optional
+                              </span>
+                            </label>
+
+                            <p className="mt-1 text-xs leading-5 text-neutral-500">
+                              This caption is used as context for generation and printed cleanly in the exported PDF.
+                              The AI should not draw the text into the image itself.
+                            </p>
+
+                            <textarea
+                              id={`caption-${image.id}`}
+                              value={captionDrafts[image.id] || ""}
+                              maxLength={180}
+                              rows={2}
+                              disabled={
+                                generating ||
+                                regeneratingImageId !== null ||
+                                exportingPdf ||
+                                approvingAll ||
+                                deletingOrder ||
+                                savingCaptionImageId !== null
+                              }
+                              onChange={(event) =>
+                                setCaptionDrafts((current) => ({
+                                  ...current,
+                                  [image.id]: event.target.value,
+                                }))
+                              }
+                              placeholder="Example: This was the day we had the picnic."
+                              className="mt-3 w-full resize-y rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-sm text-white outline-none placeholder:text-neutral-600 focus:border-neutral-400 disabled:cursor-not-allowed disabled:opacity-50"
+                            />
+
+                            <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <p className="text-xs text-neutral-600">
+                                {(captionDrafts[image.id] || "").length}/180
+                              </p>
+
+                              <button
+                                onClick={() => saveCaption(image.id, image.page_number)}
+                                disabled={
+                                  generating ||
+                                  regeneratingImageId !== null ||
+                                  exportingPdf ||
+                                  approvingAll ||
+                                  deletingOrder ||
+                                  savingCaptionImageId !== null
+                                }
+                                className="rounded-xl border border-neutral-700 px-4 py-2 text-sm text-neutral-200 hover:border-white disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {savingCaptionImageId === image.id
+                                  ? "Saving..."
+                                  : "Save Caption"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         <div className="mt-4 rounded-xl border border-neutral-800 bg-neutral-900 p-4">
                           <label

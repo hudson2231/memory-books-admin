@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import sharp from "sharp";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
@@ -10,6 +10,42 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
+}
+
+
+function getProductType(order: Record<string, any>) {
+  return order.product_type === "story_book" ? "story_book" : "colouring_book";
+}
+
+function cleanCaption(value: unknown) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+function wrapText(text: string, maxCharsPerLine: number) {
+  const words = text.split(" ").filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+
+    if (next.length > maxCharsPerLine && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+
+  if (current) {
+    lines.push(current);
+  }
+
+  return lines.slice(0, 3);
 }
 
 export async function POST(
@@ -55,6 +91,9 @@ export async function POST(
 
   try {
     const pdfDoc = await PDFDocument.create();
+    const captionFont = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+    const productType = getProductType(order);
+    const isStoryBook = productType === "story_book";
 
     // A4 portrait in PDF points: 210mm x 297mm
     const pageWidth = 595.28;
@@ -85,16 +124,24 @@ export async function POST(
 
       const page = pdfDoc.addPage([pageWidth, pageHeight]);
 
+      const margin = 36;
+      const caption = isStoryBook ? cleanCaption(image.caption_text) : "";
+      const captionAreaHeight = isStoryBook && caption ? 90 : 0;
+      const imageAreaWidth = pageWidth - margin * 2;
+      const imageAreaHeight = pageHeight - margin * 2 - captionAreaHeight;
+
       const scale = Math.min(
-        pageWidth / embeddedImage.width,
-        pageHeight / embeddedImage.height
+        imageAreaWidth / embeddedImage.width,
+        imageAreaHeight / embeddedImage.height
       );
 
       const drawWidth = embeddedImage.width * scale;
       const drawHeight = embeddedImage.height * scale;
 
       const x = (pageWidth - drawWidth) / 2;
-      const y = (pageHeight - drawHeight) / 2;
+      const y = captionAreaHeight
+        ? margin + captionAreaHeight + (imageAreaHeight - drawHeight) / 2
+        : (pageHeight - drawHeight) / 2;
 
       page.drawImage(embeddedImage, {
         x,
@@ -102,6 +149,25 @@ export async function POST(
         width: drawWidth,
         height: drawHeight,
       });
+
+      if (isStoryBook && caption) {
+        const lines = wrapText(caption, 54);
+        const fontSize = 16;
+        const lineHeight = 21;
+        const totalTextHeight = lines.length * lineHeight;
+        const startY = margin + (captionAreaHeight - totalTextHeight) / 2 + totalTextHeight - fontSize;
+
+        lines.forEach((line, index) => {
+          const textWidth = captionFont.widthOfTextAtSize(line, fontSize);
+          page.drawText(line, {
+            x: (pageWidth - textWidth) / 2,
+            y: startY - index * lineHeight,
+            size: fontSize,
+            font: captionFont,
+            color: rgb(0.12, 0.12, 0.12),
+          });
+        });
+      }
     }
 
     const pdfBytes = await pdfDoc.save();

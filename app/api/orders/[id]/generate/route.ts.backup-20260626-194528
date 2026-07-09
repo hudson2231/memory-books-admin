@@ -51,19 +51,14 @@ LIKENESS AND SUBJECT PRESERVATION:
 - do not turn people into caricatures
 - do not make faces creepy, distorted, overly stylised, or generic
 
-BACKGROUND AND SETTING PRESERVATION:
-- preserve the recognisable identity and overall structure of the original setting
-- retain the major environmental anchors that explain where the people are, such as walls, windows, doors, furniture, booths, tables, chairs, framed pictures, aircraft seats, cabin windows, ceiling patterns, crowds, paths, road edges, buildings, skylines, and horizon lines
-- preserve the approximate position, scale, perspective, and spatial relationship of important background elements
-- simplify fine texture, photographic noise, repetitive clutter, tiny decorations, and irrelevant micro-detail, but do not erase meaningful scene structure
-- convert important background features into clean, colourable outlines with open white interior space
-- do not replace a meaningful background with large empty white areas merely because the source is dark, blurry, crowded, or low contrast
-- for dark or low-light photographs, carefully infer visible scene boundaries and preserve useful environmental cues as simplified outlines, including distant lights, architecture, paths, crowd placement, furniture, and room geometry
-- preserve background people when they contribute meaningfully to the scene, but render them with less detail than the main subjects so they do not compete with the faces
-- remove photographic darkness, haze, flash glare, colour casts, grain, blur, and muddy shadows without removing the objects or structures they belong to
-- maintain a clear depth hierarchy: main people most detailed, important setting elements moderately detailed, minor clutter simplified
-- the background must support the people without dominating them, but the finished page should still clearly feel like the same real place and moment
-- prioritise structural accuracy and setting identity over decorative detail
+BACKGROUND HANDLING:
+- keep background details that make the scene recognisable and interesting
+- simplify messy or distracting clutter
+- convert background structures into clean, colourable outlines
+- remove photographic darkness, haze, flash glare, grain, blur, and muddy shadows
+- do not leave huge empty blank areas unless the original composition genuinely needs breathing room
+- background should support the people, not dominate them
+- use clean architectural/object outlines where useful, but avoid excessive background detail that competes with faces
 
 STRICTLY DO NOT CREATE:
 - colour
@@ -99,80 +94,6 @@ QUALITY DECISION RULES:
 - If choosing between faint accuracy and bold attractive line art, choose bold attractive line art.
 - The final page should look sellable, finished, premium, and ready to include in a printed personalised colouring book.
 `.trim();
-
-const STORY_BOOK_PROMPT_VERSION = "storybook_clipart_v1";
-
-const STORY_BOOK_PROMPT = `
-Create a finished, premium, printable personalised story-book illustration from the uploaded customer photo.
-
-This is for a personalised memory story book product. The result should feel like a clean, warm, modern clip-art / illustrated keepsake page, not a colouring-book page and not a rough sketch.
-
-ABSOLUTE OUTPUT STYLE:
-- polished modern clip-art / storybook illustration style
-- soft, friendly, premium, giftable look
-- clean simplified shapes with smooth edges
-- tasteful colour palette inspired by the original photo
-- clear readable people with recognisable likeness
-- warm sentimental feeling
-- print-ready composition on a clean page
-- no messy sketch lines, no harsh photo filter, no hyper-realistic rendering
-
-SUBJECT PRESERVATION:
-- preserve the real number of main people
-- preserve each person's approximate facial likeness, expression, hairstyle, body proportions, pose, and clothing silhouette
-- preserve important objects being held or worn
-- keep faces clean, warm, recognisable, and natural
-- do not add extra main people
-- do not remove main people
-- do not merge people together
-- do not turn people into caricatures
-- do not make faces creepy, distorted, overly stylised, or generic
-
-SETTING PRESERVATION:
-- preserve the recognisable identity and structure of the original setting
-- keep the main environmental anchors that explain the memory, such as rooms, furniture, tables, chairs, roads, paths, beaches, parks, buildings, skylines, cars, aircraft cabins, crowds, signs without readable text, and horizon lines
-- simplify clutter and tiny details, but do not erase the place or make the people float in empty space
-- make the setting support the memory without overpowering the people
-
-STORYBOOK QUALITY RULES:
-- make the page feel like a meaningful memory, not a generic stock illustration
-- use the customer caption only as context for mood and scene importance
-- do not render, draw, spell, or place the caption text inside the image itself
-- do not add random text, labels, logos, watermarks, signatures, or brand names
-- do not create a colouring-book line-art page
-- do not create anime, comic superhero, or childish cartoon style
-- the final page should look sellable, finished, premium, and ready to include in a printed personalised story book.
-`.trim();
-
-function getProductType(order: Record<string, any>) {
-  return order.product_type === "story_book" ? "story_book" : "colouring_book";
-}
-
-function getPromptForOrder(order: Record<string, any>, image: Record<string, any>) {
-  if (getProductType(order) === "story_book") {
-    const caption = typeof image.caption_text === "string" ? image.caption_text.trim() : "";
-
-    if (!caption) {
-      return STORY_BOOK_PROMPT;
-    }
-
-    return `${STORY_BOOK_PROMPT}
-
-CUSTOMER CAPTION FOR THIS PAGE:
-${caption}
-
-Use this caption as emotional and contextual guidance only. Do not render the caption text inside the illustration.`;
-  }
-
-  return MEMORY_BOOKS_PROMPT;
-}
-
-function getPromptVersionForOrder(order: Record<string, any>) {
-  return getProductType(order) === "story_book"
-    ? STORY_BOOK_PROMPT_VERSION
-    : MEMORY_BOOKS_PROMPT_VERSION;
-}
-
 
 function slugify(value: string) {
   return value
@@ -278,8 +199,6 @@ export async function POST(
 
       const mimeType =
         image.mime_type || getMimeTypeFromUrl(image.original_url);
-      const promptText = getPromptForOrder(order, image);
-      const promptVersion = getPromptVersionForOrder(order);
 
       const geminiResponse = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -293,7 +212,7 @@ export async function POST(
               {
                 parts: [
                   {
-                    text: promptText,
+                    text: MEMORY_BOOKS_PROMPT,
                   },
                   {
                     inline_data: {
@@ -358,7 +277,7 @@ export async function POST(
           status: "generated",
           error_message: null,
           model_used: GEMINI_IMAGE_MODEL,
-          prompt_version: promptVersion,
+          prompt_version: MEMORY_BOOKS_PROMPT_VERSION,
           generated_at: new Date().toISOString(),
           replaced_manually: false,
         })
