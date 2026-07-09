@@ -21,6 +21,36 @@ type Order = {
   uploaded_count: number;
 };
 
+type OrderFilter = "all" | "needs_review" | "approved" | "failed" | "exported";
+
+const ORDER_FILTERS: { key: OrderFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "needs_review", label: "Needs Review" },
+  { key: "approved", label: "Approved" },
+  { key: "failed", label: "Failed" },
+  { key: "exported", label: "PDF Exported" },
+];
+
+function getOrderFilterBucket(order: Order): OrderFilter {
+  if (order.failed_count > 0 || order.status === "generation_failed") {
+    return "failed";
+  }
+
+  if (order.pdf_url || order.pdf_status === "exported") {
+    return "exported";
+  }
+
+  if (
+    order.image_count > 0 &&
+    order.approved_count === order.image_count &&
+    order.generated_count === order.image_count
+  ) {
+    return "approved";
+  }
+
+  return "needs_review";
+}
+
 function getProductionStatus(order: Order) {
   if (order.pdf_url) {
     return {
@@ -91,6 +121,7 @@ export default function Home() {
   const [pageCount, setPageCount] = useState("20");
   const [files, setFiles] = useState<File[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>("needs_review");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -99,11 +130,17 @@ export default function Home() {
       const response = await fetch("/api/orders");
       const data = await response.json();
 
+      if (!response.ok) {
+        setMessage(data.error || "Failed to load orders.");
+        return;
+      }
+
       if (data.orders) {
         setOrders(data.orders);
       }
     } catch {
       console.error("Failed to load orders.");
+      setMessage("Failed to load orders.");
     }
   }
 
@@ -165,6 +202,23 @@ export default function Home() {
       fileInput.value = "";
     }
   }
+
+  const filterCounts = ORDER_FILTERS.reduce(
+    (counts, filter) => {
+      counts[filter.key] =
+        filter.key === "all"
+          ? orders.length
+          : orders.filter((order) => getOrderFilterBucket(order) === filter.key).length;
+
+      return counts;
+    },
+    {} as Record<OrderFilter, number>
+  );
+
+  const filteredOrders =
+    orderFilter === "all"
+      ? orders
+      : orders.filter((order) => getOrderFilterBucket(order) === orderFilter);
 
   async function createTestOrder() {
     setLoading(true);
@@ -387,18 +441,58 @@ export default function Home() {
         </section>
 
         <section className="mt-8 rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
-          <h2 className="text-2xl font-medium">Recent Orders</h2>
-          <p className="mt-2 text-neutral-400">
-            Click an order to review, approve, regenerate, and export.
-          </p>
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="text-2xl font-medium">Recent Orders</h2>
+              <p className="mt-2 text-neutral-400">
+                Click an order to review, approve, regenerate, and export.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={loadOrders}
+              className="w-fit rounded-xl border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-white hover:text-white"
+            >
+              Refresh
+            </button>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            {ORDER_FILTERS.map((filter) => {
+              const isActive = orderFilter === filter.key;
+
+              return (
+                <button
+                  key={filter.key}
+                  type="button"
+                  onClick={() => setOrderFilter(filter.key)}
+                  className={`rounded-full border px-4 py-2 text-sm transition ${
+                    isActive
+                      ? "border-white bg-white text-black"
+                      : "border-neutral-700 bg-neutral-950 text-neutral-300 hover:border-white hover:text-white"
+                  }`}
+                >
+                  {filter.label}
+                  <span className={isActive ? "ml-2 text-black/60" : "ml-2 text-neutral-500"}>
+                    {filterCounts[filter.key]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
 
           <div className="mt-6 space-y-3">
             {orders.length === 0 ? (
               <div className="rounded-xl border border-neutral-800 bg-neutral-950 p-5 text-neutral-500">
-                No orders yet.
+                No orders found in this Supabase project yet.
+              </div>
+            ) : filteredOrders.length === 0 ? (
+              <div className="rounded-xl border border-neutral-800 bg-neutral-950 p-5 text-neutral-500">
+                No orders in this filter.
               </div>
             ) : (
-              orders.map((order) => {
+              filteredOrders.map((order) => {
                 const productionStatus = getProductionStatus(order);
 
                 return (

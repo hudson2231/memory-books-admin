@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const { data: orders, error: ordersError } = await supabaseAdmin
     .from("orders")
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(30);
+    .limit(200);
 
   if (ordersError) {
     return NextResponse.json(
