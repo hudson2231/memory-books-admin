@@ -8,7 +8,7 @@ export async function GET() {
     .from("orders")
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(500);
 
   if (ordersError) {
     return NextResponse.json(
@@ -99,6 +99,7 @@ export async function POST(request: Request) {
         page_count: pageCount,
         status: "created",
         pdf_status: "not_exported",
+        product_type: "colouring_book",
       })
       .select("*")
       .single();

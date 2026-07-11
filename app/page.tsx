@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Order = {
   id: string;
@@ -13,6 +13,11 @@ type Order = {
   pdf_url: string | null;
   pdf_status: string | null;
   exported_at: string | null;
+  product_type?: string | null;
+  product_title?: string | null;
+  variant_title?: string | null;
+  financial_status?: string | null;
+  pod_status?: string | null;
   image_count: number;
   generated_count: number;
   approved_count: number;
@@ -21,93 +26,243 @@ type Order = {
   uploaded_count: number;
 };
 
-type OrderFilter = "all" | "needs_review" | "approved" | "failed" | "exported";
+type OrderTab =
+  | "all"
+  | "uploaded"
+  | "generating"
+  | "generated"
+  | "approved"
+  | "exported"
+  | "fulfilled"
+  | "failed";
 
-const ORDER_FILTERS: { key: OrderFilter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "needs_review", label: "Needs Review" },
-  { key: "approved", label: "Approved" },
-  { key: "failed", label: "Failed" },
-  { key: "exported", label: "PDF Exported" },
+type SortMode = "newest" | "oldest";
+
+const ORDER_TABS: { key: OrderTab; label: string; description: string }[] = [
+  {
+    key: "all",
+    label: "All Orders",
+    description: "Every order in the system.",
+  },
+  {
+    key: "uploaded",
+    label: "Uploaded",
+    description: "Photos imported, not generated yet.",
+  },
+  {
+    key: "generating",
+    label: "Generating",
+    description: "AI generation currently in progress.",
+  },
+  {
+    key: "generated",
+    label: "Generated",
+    description: "Generated pages waiting for review.",
+  },
+  {
+    key: "approved",
+    label: "Approved",
+    description: "All pages approved, ready to export.",
+  },
+  {
+    key: "exported",
+    label: "Exported",
+    description: "PDF exported, ready for fulfilment.",
+  },
+  {
+    key: "fulfilled",
+    label: "Fulfilled",
+    description: "Order has been completed or sent to production.",
+  },
+  {
+    key: "failed",
+    label: "Failed",
+    description: "Needs attention because something failed.",
+  },
 ];
 
-function getOrderFilterBucket(order: Order): OrderFilter {
-  if (order.failed_count > 0 || order.status === "generation_failed") {
+function normalize(value: string | null | undefined) {
+  return (value || "").toLowerCase().trim();
+}
+
+function getProductLabel(order: Order) {
+  const productType = normalize(order.product_type);
+  const title = normalize(order.product_title);
+  const variant = normalize(order.variant_title);
+  const combined = `${productType} ${title} ${variant}`;
+
+  if (
+    productType === "story_book" ||
+    combined.includes("story book") ||
+    combined.includes("storybook") ||
+    combined.includes("clip")
+  ) {
+    return "Story Book";
+  }
+
+  return "Colouring Book";
+}
+
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+
+  if (parts.length === 0) {
+    return "MB";
+  }
+
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function getOrderBucket(order: Order): OrderTab {
+  const status = normalize(order.status);
+  const pdfStatus = normalize(order.pdf_status);
+  const podStatus = normalize(order.pod_status);
+
+  if (
+    order.failed_count > 0 ||
+    status.includes("failed") ||
+    status.includes("error") ||
+    pdfStatus.includes("failed")
+  ) {
     return "failed";
   }
 
-  if (order.pdf_url || order.pdf_status === "exported") {
+  if (
+    status === "fulfilled" ||
+    status === "complete" ||
+    status === "completed" ||
+    podStatus === "fulfilled" ||
+    podStatus === "submitted" ||
+    podStatus === "complete" ||
+    podStatus === "completed"
+  ) {
+    return "fulfilled";
+  }
+
+  if (order.pdf_url || pdfStatus === "exported" || status === "exported") {
     return "exported";
   }
 
   if (
     order.image_count > 0 &&
+    order.generated_count > 0 &&
     order.approved_count === order.image_count &&
     order.generated_count === order.image_count
   ) {
     return "approved";
   }
 
-  return "needs_review";
+  if (
+    order.image_count > 0 &&
+    order.generated_count === order.image_count &&
+    order.approved_count < order.image_count
+  ) {
+    return "generated";
+  }
+
+  if (order.generating_count > 0 || status === "generating") {
+    return "generating";
+  }
+
+  return "uploaded";
 }
 
-function getProductionStatus(order: Order) {
-  if (order.pdf_url) {
-    return {
-      label: "PDF exported",
-      className: "bg-purple-950 text-purple-300",
-    };
-  }
+function getStatusBadge(order: Order) {
+  const bucket = getOrderBucket(order);
 
-  if (!order.image_count || order.image_count === 0) {
-    return {
-      label: "No images uploaded",
-      className: "bg-neutral-800 text-neutral-300",
-    };
-  }
+  const styles: Record<OrderTab, string> = {
+    all: "border-neutral-700 bg-neutral-900 text-neutral-300",
+    uploaded: "border-neutral-700 bg-neutral-900 text-neutral-300",
+    generating: "border-blue-900 bg-blue-950 text-blue-300",
+    generated: "border-yellow-900 bg-yellow-950 text-yellow-300",
+    approved: "border-green-900 bg-green-950 text-green-300",
+    exported: "border-cyan-900 bg-cyan-950 text-cyan-300",
+    fulfilled: "border-purple-900 bg-purple-950 text-purple-300",
+    failed: "border-red-900 bg-red-950 text-red-300",
+  };
 
-  if (order.failed_count > 0) {
-    return {
-      label: `${order.generated_count}/${order.image_count} generated · ${order.failed_count} failed`,
-      className: "bg-red-950 text-red-300",
-    };
-  }
+  const labels: Record<OrderTab, string> = {
+    all: "All",
+    uploaded: "Uploaded",
+    generating: "Generating",
+    generated: "Generated",
+    approved: "Approved",
+    exported: "Exported",
+    fulfilled: "Fulfilled",
+    failed: "Failed",
+  };
 
-  if (order.generating_count > 0) {
-    return {
-      label: `Generating ${order.generating_count}/${order.image_count}`,
-      className: "bg-blue-950 text-blue-300",
-    };
-  }
-
-  if (order.approved_count > 0 && order.approved_count === order.generated_count) {
-    return {
-      label: `${order.approved_count}/${order.image_count} approved`,
-      className: "bg-green-950 text-green-300",
-    };
-  }
-
-  if (order.generated_count === order.image_count) {
-    return {
-      label: `${order.generated_count}/${order.image_count} generated · needs review`,
-      className: "bg-yellow-950 text-yellow-300",
-    };
-  }
-
-  if (order.generated_count > 0) {
+  if (bucket === "generated") {
     return {
       label: `${order.generated_count}/${order.image_count} generated`,
-      className: "bg-yellow-950 text-yellow-300",
+      className: styles[bucket],
+    };
+  }
+
+  if (bucket === "approved") {
+    return {
+      label: `${order.approved_count}/${order.image_count} approved`,
+      className: styles[bucket],
+    };
+  }
+
+  if (bucket === "generating") {
+    return {
+      label: `Generating ${order.generating_count || ""}`.trim(),
+      className: styles[bucket],
+    };
+  }
+
+  if (bucket === "failed") {
+    return {
+      label: `${order.failed_count || 1} failed`,
+      className: styles[bucket],
     };
   }
 
   return {
-    label: `${order.image_count} photos · not generated`,
-    className: "bg-neutral-800 text-neutral-300",
+    label: labels[bucket],
+    className: styles[bucket],
   };
 }
 
+function timeAgo(dateString: string) {
+  const date = new Date(dateString);
+  const diff = Date.now() - date.getTime();
+
+  if (Number.isNaN(diff)) {
+    return "unknown";
+  }
+
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+
+  return date.toLocaleDateString();
+}
+
 export default function Home() {
+  const [customerName, setCustomerName] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [pageCount, setPageCount] = useState("20");
+  const [files, setFiles] = useState<File[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [activeTab, setActiveTab] = useState<OrderTab>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>("newest");
+  const [loading, setLoading] = useState(false);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [message, setMessage] = useState("");
+
   async function logout() {
     await fetch("/api/admin/logout", {
       method: "POST",
@@ -116,18 +271,14 @@ export default function Home() {
     window.location.href = "/login";
   }
 
-  const [customerName, setCustomerName] = useState("");
-  const [customerEmail, setCustomerEmail] = useState("");
-  const [pageCount, setPageCount] = useState("20");
-  const [files, setFiles] = useState<File[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [orderFilter, setOrderFilter] = useState<OrderFilter>("needs_review");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-
   async function loadOrders() {
+    setLoadingOrders(true);
+
     try {
-      const response = await fetch("/api/orders");
+      const response = await fetch("/api/orders", {
+        cache: "no-store",
+      });
+
       const data = await response.json();
 
       if (!response.ok) {
@@ -135,12 +286,11 @@ export default function Home() {
         return;
       }
 
-      if (data.orders) {
-        setOrders(data.orders);
-      }
+      setOrders(data.orders || []);
     } catch {
-      console.error("Failed to load orders.");
       setMessage("Failed to load orders.");
+    } finally {
+      setLoadingOrders(false);
     }
   }
 
@@ -153,6 +303,63 @@ export default function Home() {
 
     return () => clearInterval(interval);
   }, []);
+
+  const tabCounts = useMemo(() => {
+    const counts = ORDER_TABS.reduce(
+      (current, tab) => {
+        current[tab.key] = 0;
+        return current;
+      },
+      {} as Record<OrderTab, number>
+    );
+
+    counts.all = orders.length;
+
+    for (const order of orders) {
+      const bucket = getOrderBucket(order);
+      counts[bucket] += 1;
+    }
+
+    return counts;
+  }, [orders]);
+
+  const visibleOrders = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+
+    const filtered = orders.filter((order) => {
+      const bucket = getOrderBucket(order);
+
+      if (activeTab !== "all" && bucket !== activeTab) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      const searchable = [
+        order.customer_name,
+        order.customer_email,
+        getProductLabel(order),
+        order.product_title || "",
+        order.variant_title || "",
+        order.status || "",
+        order.pdf_status || "",
+        order.financial_status || "",
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return searchable.includes(query);
+    });
+
+    return filtered.sort((a, b) => {
+      const aTime = new Date(a.created_at).getTime();
+      const bTime = new Date(b.created_at).getTime();
+
+      return sortMode === "newest" ? bTime - aTime : aTime - bTime;
+    });
+  }, [orders, activeTab, searchQuery, sortMode]);
 
   function addSelectedFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) {
@@ -203,23 +410,6 @@ export default function Home() {
     }
   }
 
-  const filterCounts = ORDER_FILTERS.reduce(
-    (counts, filter) => {
-      counts[filter.key] =
-        filter.key === "all"
-          ? orders.length
-          : orders.filter((order) => getOrderFilterBucket(order) === filter.key).length;
-
-      return counts;
-    },
-    {} as Record<OrderFilter, number>
-  );
-
-  const filteredOrders =
-    orderFilter === "all"
-      ? orders
-      : orders.filter((order) => getOrderFilterBucket(order) === orderFilter);
-
   async function createTestOrder() {
     setLoading(true);
     setMessage("");
@@ -262,7 +452,9 @@ export default function Home() {
         const uploadData = await uploadResponse.json();
 
         if (!uploadResponse.ok) {
-          setMessage(uploadData.error || "Order created, but image upload failed.");
+          setMessage(
+            uploadData.error || "Order created, but image upload failed."
+          );
           await loadOrders();
           return;
         }
@@ -287,21 +479,26 @@ export default function Home() {
     }
   }
 
+  const activeDescription =
+    ORDER_TABS.find((tab) => tab.key === activeTab)?.description ||
+    "Manage orders.";
+
   return (
     <main className="min-h-screen bg-neutral-950 text-white">
-      <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mx-auto max-w-7xl px-6 py-10">
         <div className="mb-10">
           <p className="text-sm uppercase tracking-[0.3em] text-neutral-400">
             Memory Books
           </p>
-          <h1 className="mt-3 text-4xl font-semibold">
-            Production Dashboard
-          </h1>
-          <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <p className="max-w-2xl text-neutral-400">
-              Upload customer photos, generate colouring-book pages, review the
-              results, approve pages, and export print-ready PDFs.
-            </p>
+
+          <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h1 className="text-4xl font-semibold">Production Dashboard</h1>
+              <p className="mt-3 max-w-2xl text-neutral-400">
+                Upload customer photos, generate pages, review results, approve
+                orders, export PDFs, and track fulfilment.
+              </p>
+            </div>
 
             <button
               onClick={logout}
@@ -354,6 +551,7 @@ export default function Home() {
                 className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-white outline-none focus:border-white"
               >
                 <option value="10">10</option>
+                <option value="12">12</option>
                 <option value="20">20</option>
                 <option value="30">30</option>
                 <option value="40">40</option>
@@ -392,7 +590,8 @@ export default function Home() {
               {files.length > 0 && (
                 <div className="mt-3 rounded-xl border border-neutral-800 bg-neutral-950 p-3">
                   <p className="mb-2 text-sm text-neutral-300">
-                    {files.length} selected image{files.length === 1 ? "" : "s"}
+                    {files.length} selected image
+                    {files.length === 1 ? "" : "s"}
                   </p>
 
                   <div className="space-y-2">
@@ -433,97 +632,164 @@ export default function Home() {
             {loading ? "Creating..." : "Create Test Order"}
           </button>
 
-          {message && (
-            <p className="mt-4 text-sm text-neutral-300">
-              {message}
-            </p>
-          )}
+          {message && <p className="mt-4 text-sm text-neutral-300">{message}</p>}
         </section>
 
         <section className="mt-8 rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
-              <h2 className="text-2xl font-medium">Recent Orders</h2>
+              <h2 className="text-2xl font-medium">Orders</h2>
               <p className="mt-2 text-neutral-400">
-                Click an order to review, approve, regenerate, and export.
+                {activeDescription}
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={loadOrders}
-              className="w-fit rounded-xl border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-white hover:text-white"
-            >
-              Refresh
-            </button>
+            <p className="text-sm text-neutral-500">
+              {loadingOrders ? "Refreshing..." : `${visibleOrders.length} visible`}
+            </p>
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
-            {ORDER_FILTERS.map((filter) => {
-              const isActive = orderFilter === filter.key;
+            {ORDER_TABS.map((tab) => {
+              const isActive = activeTab === tab.key;
 
               return (
                 <button
-                  key={filter.key}
-                  type="button"
-                  onClick={() => setOrderFilter(filter.key)}
-                  className={`rounded-full border px-4 py-2 text-sm transition ${
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`rounded-xl border px-4 py-2 text-sm transition ${
                     isActive
                       ? "border-white bg-white text-black"
-                      : "border-neutral-700 bg-neutral-950 text-neutral-300 hover:border-white hover:text-white"
+                      : "border-neutral-700 bg-neutral-950 text-neutral-300 hover:border-neutral-400 hover:text-white"
                   }`}
                 >
-                  {filter.label}
-                  <span className={isActive ? "ml-2 text-black/60" : "ml-2 text-neutral-500"}>
-                    {filterCounts[filter.key]}
+                  <span>{tab.label}</span>
+                  <span
+                    className={`ml-2 rounded-full px-2 py-0.5 text-xs ${
+                      isActive
+                        ? "bg-black text-white"
+                        : "bg-neutral-800 text-neutral-300"
+                    }`}
+                  >
+                    {tabCounts[tab.key]}
                   </span>
                 </button>
               );
             })}
           </div>
 
-          <div className="mt-6 space-y-3">
-            {orders.length === 0 ? (
-              <div className="rounded-xl border border-neutral-800 bg-neutral-950 p-5 text-neutral-500">
-                No orders found in this Supabase project yet.
-              </div>
-            ) : filteredOrders.length === 0 ? (
-              <div className="rounded-xl border border-neutral-800 bg-neutral-950 p-5 text-neutral-500">
-                No orders in this filter.
+          <div className="mt-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search by customer, email, product, or status..."
+              className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-sm text-white outline-none placeholder:text-neutral-600 focus:border-white md:max-w-xl"
+            />
+
+            <select
+              value={sortMode}
+              onChange={(event) => setSortMode(event.target.value as SortMode)}
+              className="rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-sm text-white outline-none focus:border-white"
+            >
+              <option value="newest">Sort: Newest first</option>
+              <option value="oldest">Sort: Oldest first</option>
+            </select>
+          </div>
+
+          <div className="mt-5 overflow-hidden rounded-xl border border-neutral-800 bg-neutral-950">
+            {visibleOrders.length === 0 ? (
+              <div className="p-5 text-neutral-500">
+                No orders in this section.
               </div>
             ) : (
-              filteredOrders.map((order) => {
-                const productionStatus = getProductionStatus(order);
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+                  <thead className="border-b border-neutral-800 bg-neutral-900 text-xs uppercase tracking-[0.12em] text-neutral-500">
+                    <tr>
+                      <th className="px-5 py-4 font-medium">Customer</th>
+                      <th className="px-5 py-4 font-medium">Product</th>
+                      <th className="px-5 py-4 font-medium">Pages</th>
+                      <th className="px-5 py-4 font-medium">Status</th>
+                      <th className="px-5 py-4 font-medium">Images</th>
+                      <th className="px-5 py-4 font-medium">Generated</th>
+                      <th className="px-5 py-4 font-medium">Approved</th>
+                      <th className="px-5 py-4 font-medium">Created</th>
+                      <th className="px-5 py-4 font-medium">Action</th>
+                    </tr>
+                  </thead>
 
-                return (
-                  <Link
-                    href={`/orders/${order.id}`}
-                    key={order.id}
-                    className="block rounded-xl border border-neutral-800 bg-neutral-950 p-5 transition hover:border-neutral-600 hover:bg-neutral-900"
-                  >
-                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <p className="font-medium">{order.customer_name}</p>
-                        <p className="text-sm text-neutral-400">
-                          {order.customer_email}
-                        </p>
-                      </div>
+                  <tbody className="divide-y divide-neutral-900">
+                    {visibleOrders.map((order) => {
+                      const badge = getStatusBadge(order);
 
-                      <div className="flex flex-col gap-2 text-sm text-neutral-400 md:items-end">
-                        <p>
-                          {order.page_count} pages · {order.status}
-                        </p>
-
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs ${productionStatus.className}`}
+                      return (
+                        <tr
+                          key={order.id}
+                          className="transition hover:bg-neutral-900"
                         >
-                          {productionStatus.label}
-                        </span>
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-neutral-800 text-xs font-semibold text-white">
+                                {getInitials(order.customer_name)}
+                              </div>
+
+                              <div className="min-w-0">
+                                <p className="truncate font-medium text-neutral-100">
+                                  {order.customer_name}
+                                </p>
+                                <p className="truncate text-xs text-neutral-500">
+                                  {order.customer_email}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="px-5 py-4 text-neutral-300">
+                            {getProductLabel(order)}
+                          </td>
+
+                          <td className="px-5 py-4 text-neutral-300">
+                            {order.page_count}
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <span
+                              className={`inline-flex rounded-full border px-3 py-1 text-xs ${badge.className}`}
+                            >
+                              {badge.label}
+                            </span>
+                          </td>
+
+                          <td className="px-5 py-4 text-neutral-300">
+                            {order.image_count}
+                          </td>
+
+                          <td className="px-5 py-4 text-neutral-300">
+                            {order.generated_count}
+                          </td>
+
+                          <td className="px-5 py-4 text-neutral-300">
+                            {order.approved_count}
+                          </td>
+
+                          <td className="px-5 py-4 text-neutral-400">
+                            {timeAgo(order.created_at)}
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <Link
+                              href={`/orders/${order.id}`}
+                              className="inline-flex rounded-xl border border-neutral-700 px-3 py-2 text-xs text-neutral-200 hover:border-white hover:text-white"
+                            >
+                              View Order
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </section>
