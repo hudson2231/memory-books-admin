@@ -472,6 +472,87 @@ function inferProductType(order: Record<string, any>) {
   return "colouring_book";
 }
 
+
+function propertyEntriesFromLineItem(lineItem: Record<string, any>) {
+  const properties = lineItem.properties;
+  const entries: Array<{ name: string; value: string }> = [];
+
+  if (Array.isArray(properties)) {
+    for (const property of properties) {
+      const name = safeText(property?.name);
+      const value = safeText(property?.value);
+
+      if (name && value) {
+        entries.push({ name, value });
+      }
+    }
+  } else if (properties && typeof properties === "object") {
+    for (const [rawName, rawValue] of Object.entries(properties)) {
+      const name = safeText(rawName);
+      const value = safeText(rawValue);
+
+      if (name && value) {
+        entries.push({ name, value });
+      }
+    }
+  }
+
+  return entries;
+}
+
+function normaliseCaption(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const cleaned = value
+    .replace(/\s+/g, " ")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .trim()
+    .slice(0, 180);
+
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function collectCaptions(lineItem: Record<string, any>, pageCount: number) {
+  const captions: Record<number, string> = {};
+  const entries = propertyEntriesFromLineItem(lineItem);
+
+  for (const entry of entries) {
+    const key = entry.name.toLowerCase().trim();
+    const value = normaliseCaption(entry.value);
+
+    if (!value) {
+      continue;
+    }
+
+    const numberedMatch = key.match(/(?:caption|page)\s*#?\s*(\d+)/i);
+
+    if (numberedMatch) {
+      const pageNumber = Number(numberedMatch[1]);
+
+      if (pageNumber >= 1 && pageNumber <= pageCount) {
+        captions[pageNumber] = value;
+      }
+
+      continue;
+    }
+
+    const alternativeMatch = key.match(/(?:caption|page)[-_\s]*(\d+)/i);
+
+    if (alternativeMatch) {
+      const pageNumber = Number(alternativeMatch[1]);
+
+      if (pageNumber >= 1 && pageNumber <= pageCount) {
+        captions[pageNumber] = value;
+      }
+    }
+  }
+
+  return captions;
+}
+
 function mapAddress(address: ShopifyAddress | null | undefined, prefix: "shipping" | "billing") {
   return {
     [`${prefix}_name`]: safeText(address?.name),
@@ -533,6 +614,7 @@ export async function POST(request: Request) {
     const lineItem = getPrimaryLineItem(order);
     const pageCount = inferPageCount(order);
     const productType = inferProductType(order);
+    const captionsByPage = collectCaptions(lineItem, pageCount);
 
     const uploadUrls = Array.from(collectUploadUrls(order.line_items || []));
 
@@ -618,6 +700,8 @@ export async function POST(request: Request) {
             original_filename: file.filename,
             mime_type: file.contentType,
             page_number: index + 1,
+            caption_text: captionsByPage[index + 1] || null,
+            caption_source: captionsByPage[index + 1] ? "shopify" : "admin",
             status: "uploaded",
             approved: false,
             error_message: null,
