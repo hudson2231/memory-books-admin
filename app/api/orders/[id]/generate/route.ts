@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 const GEMINI_IMAGE_MODEL = "gemini-3-pro-image";
 const MEMORY_BOOKS_PROMPT_VERSION = "premium_people_first_v1";
+const MAX_IMAGES_PER_REQUEST = 2;
 
 const MEMORY_BOOKS_PROMPT = `
 Create a finished, premium, printable adult colouring-book page from the uploaded customer photo.
@@ -235,7 +236,9 @@ export async function POST(
     .from("order_images")
     .select("*")
     .eq("order_id", orderId)
-    .order("page_number", { ascending: true });
+    .or("generated_url.is.null,status.eq.failed,status.eq.uploaded,status.eq.not_generated")
+    .order("page_number", { ascending: true })
+    .limit(MAX_IMAGES_PER_REQUEST);
 
   if (imagesError) {
     return NextResponse.json(
@@ -246,7 +249,7 @@ export async function POST(
 
   if (!images || images.length === 0) {
     return NextResponse.json(
-      { error: "No uploaded images found for this order." },
+      { error: "No ungenerated pages left for this order." },
       { status: 400 }
     );
   }
@@ -395,17 +398,37 @@ export async function POST(
     (result) => result.status === "failed"
   ).length;
 
-  const newOrderStatus = failedCount > 0 ? "generation_failed" : "generated";
+  const { count: remainingCount } = await supabaseAdmin
+    .from("order_images")
+    .select("id", { count: "exact", head: true })
+    .eq("order_id", orderId)
+    .or("generated_url.is.null,status.eq.failed,status.eq.uploaded,status.eq.not_generated");
+
+  const newOrderStatus =
+    failedCount > 0
+      ? "generation_failed"
+      : remainingCount && remainingCount > 0
+        ? "generating"
+        : "needs_review";
 
   await supabaseAdmin
     .from("orders")
     .update({
-      status: newOrderStatus === "generated" ? "needs_review" : newOrderStatus,
+      status: newOrderStatus,
+      pdf_status: "not_exported",
     })
     .eq("id", orderId);
 
   return NextResponse.json({
     model: GEMINI_IMAGE_MODEL,
     images: generatedResults,
+    generated_this_run: generatedResults.filter((result) => result.status === "generated").length,
+    failed_this_run: failedCount,
+    remaining: remainingCount || 0,
+    status: newOrderStatus,
+    message:
+      remainingCount && remainingCount > 0
+        ? `Generated this batch. ${remainingCount} page(s) still remaining.`
+        : "All pages generated. Ready for review.",
   });
 }
