@@ -1,104 +1,117 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
-const GEMINI_IMAGE_MODEL = "gemini-3-pro-image";
+const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL?.trim() || "gemini-3-pro-image";
 const MEMORY_BOOKS_PROMPT_VERSION = "premium_people_first_v1";
 const MAX_IMAGES_PER_REQUEST = 2;
 
 const MEMORY_BOOKS_PROMPT = `
-Create a finished, premium, printable adult colouring-book page from the uploaded customer photo.
+Convert the uploaded customer photo into a premium personalised colouring-book page.
 
-This is for a personalised colouring-book product. The result must feel like a polished commercial colouring-book illustration, not a filter, not a faint trace, not a rough sketch, and not a children's cartoon.
+This is a strict photo-to-line-art conversion task. Do not create a new illustration from imagination. The final output must feel like the same real memory, converted into clean printable colouring-book line art.
 
-ABSOLUTE OUTPUT STYLE:
-- pure black ink line art on a pure white background
-- bold, confident, clean outlines
-- crisp high-contrast printable lines
-- smooth professional line weight
-- clean vector-like colouring-book illustration style
-- detailed enough to feel premium, but still clean and easy to colour
-- elegant adult colouring-book style
-- open white spaces suitable for colouring with markers
-- print-ready composition
+ABSOLUTE OUTPUT RULES:
+- black ink outlines only
+- pure white background
+- no colour anywhere
+- no coloured clothing
+- no coloured objects
+- no grey shading
+- no gradients
+- no soft shadows
+- no pencil shading
+- no crosshatching
+- no painterly texture
+- no sketch texture
+- no filled black clothing areas
+- no filled black hair areas
+- no filled black shadow areas
+- no solid dark blobs
+- no logos, readable brand names, signs, captions, text, labels, watermarks, or signatures
+- do not render any text from clothing, signs, posters, bottles, menus, or screens
+- if a logo or text appears in the photo, replace it with a blank outlined shape
 
-LINE QUALITY REQUIREMENTS:
-- lines must be dark black, not pale grey
-- outlines must be visibly strong when printed
-- use confident contour lines around people, clothing, hair, objects, and important background elements
-- use smaller detail lines only where useful, such as hair, facial features, clothing folds, shoes, and key objects
-- avoid overly thin, weak, faded, sketchy, or hesitant lines
-- avoid visual noise and scratchy texture
+STYLE TARGET:
+- clean adult colouring-book line art
+- crisp black outlines
+- smooth confident lines
+- consistent thin-to-medium line weight
+- elegant and premium
+- simple enough to colour
+- detailed enough to feel personal
+- large open white spaces inside clothing, hair, skin, furniture, and background objects
+- no childish cartoon style
+- no anime style
+- no comic superhero style
+- no realistic shaded portrait style
+
+PHOTO FIDELITY:
+- preserve the real number of main foreground people
+- preserve the main people's approximate facial likeness, expression, hairstyle, pose, body proportions, and clothing silhouette
+- preserve who is close to whom and the overall memory composition
+- preserve important objects being held or worn
+- preserve the general setting enough that the place still makes sense
+- do not add extra main people
+- do not remove main foreground people
+- do not merge people together
+- do not change the pose into something unrelated
+- do not rotate the image
+- preserve the original orientation of the photo unless it is clearly sideways in the uploaded file
 
 PEOPLE-FIRST COMPOSITION:
-- the people are the most important part of the image
-- make the main people large, clear, attractive, and central enough to be the focus of the page
-- if the original photo has too much empty sky, ceiling, driveway, floor, wall, table, or blank background, reframe/crop/zoom the scene into a better colouring-book composition
-- do not preserve bad phone-camera framing if it makes the people too small or the page feel empty
-- preserve the important feeling and setting of the photo, but improve the framing for a beautiful colouring-book page
-- if the people are distant, enlarge them enough that faces and body poses are readable
-- keep group photos balanced so every main person remains visible and recognisable
-- do not crop off heads, faces, hands, or important body parts unless they were already clearly cut off in the original
+- main people are the most important part of the page
+- make faces clean, readable, natural, and flattering
+- keep eyes, nose, mouth, jawline, eyebrows, and hairline simple but recognisable
+- make hands simple and believable
+- avoid warped fingers, missing limbs, broken arms, distorted faces, or creepy expressions
+- if the photo has bad phone framing, crop or reframe only enough to make the main people readable
+- never crop off important heads, faces, hands, or bodies unless they are already cut off in the original photo
 
-LIKENESS AND SUBJECT PRESERVATION:
-- preserve the real number of main people
-- preserve each person's approximate facial likeness, expression, hairstyle, body proportions, pose, and clothing silhouette
-- preserve important objects being held or worn
-- preserve the general location and scene context
-- keep faces clean, readable, and natural
-- keep hands simple, clean, and believable
-- do not add extra people
-- do not remove main people
-- do not merge people together
-- do not turn people into caricatures
-- do not make faces creepy, distorted, overly stylised, or generic
+BACKGROUND RULES:
+- simplify the background heavily
+- keep only the major setting anchors needed to understand the memory
+- remove unnecessary clutter, tiny objects, noise, dirt, grain, messy shadows, and irrelevant background detail
+- convert background structures into simple clean outlines
+- background should support the people, not dominate the page
+- avoid dense wall textures, dense stone textures, dense crowd texture, tiny repeated details, and messy line noise
+- leave large clean white areas wherever possible
 
-BACKGROUND AND SETTING PRESERVATION:
-- preserve the recognisable identity and overall structure of the original setting
-- retain the major environmental anchors that explain where the people are, such as walls, windows, doors, furniture, booths, tables, chairs, framed pictures, aircraft seats, cabin windows, ceiling patterns, crowds, paths, road edges, buildings, skylines, and horizon lines
-- preserve the approximate position, scale, perspective, and spatial relationship of important background elements
-- simplify fine texture, photographic noise, repetitive clutter, tiny decorations, and irrelevant micro-detail, but do not erase meaningful scene structure
-- convert important background features into clean, colourable outlines with open white interior space
-- do not replace a meaningful background with large empty white areas merely because the source is dark, blurry, crowded, or low contrast
-- for dark or low-light photographs, carefully infer visible scene boundaries and preserve useful environmental cues as simplified outlines, including distant lights, architecture, paths, crowd placement, furniture, and room geometry
-- preserve background people when they contribute meaningfully to the scene, but render them with less detail than the main subjects so they do not compete with the faces
-- remove photographic darkness, haze, flash glare, colour casts, grain, blur, and muddy shadows without removing the objects or structures they belong to
-- maintain a clear depth hierarchy: main people most detailed, important setting elements moderately detailed, minor clutter simplified
-- the background must support the people without dominating them, but the finished page should still clearly feel like the same real place and moment
-- prioritise structural accuracy and setting identity over decorative detail
+GROUP PHOTO RULES:
+- If the photo contains 3 or more main people, treat it as a group photo.
+- Preserve the main foreground group.
+- Keep every clearly important foreground person recognisable.
+- Simplify background people aggressively.
+- Remove or reduce random crowd members who are not central to the memory.
+- Do not let background crowds compete with the main group.
+- Use fewer background lines in group photos than in simple couple photos.
+- Prioritise clear faces and clean silhouettes over background accuracy.
+- If a party, concert, restaurant, classroom, school event, or crowded scene is shown, keep the setting simple and readable, not busy.
+- Main group faces must be more detailed than background faces.
 
-STRICTLY DO NOT CREATE:
-- colour
-- grey shading
-- pencil shading
-- soft gradients
-- faint grey lines
-- pale sketch lines
-- washed-out tracing
-- rough draft appearance
-- messy crosshatching
-- photographic shadows
-- blurry or low-contrast lines
-- filled black shadow areas unless absolutely necessary for tiny details
-- text, captions, labels, logos, watermarks, signatures, or brand names
-- random extra objects
-- random extra people
-- warped faces
-- broken hands
-- missing limbs
-- distorted bodies
-- oversexualised bodies
-- childish cartoon style
-- anime style
-- comic-book superhero style
-- hyper-realistic shaded portrait style
+CLOTHING AND HAIR RULES:
+- all clothing must remain white inside with black outline details only
+- never fill shirts, jackets, dresses, hats, or pants with colour or black
+- show clothing using outlines, seams, collars, sleeves, folds, and simple detail lines
+- hair must be outline and strand detail only
+- never turn dark hair into solid black fill
+- never turn black clothing into solid black fill
 
-QUALITY DECISION RULES:
-- If choosing between exact photo framing and a better colouring-book page, choose the better colouring-book page.
-- If choosing between preserving clutter and creating a clean product, choose the clean product.
-- If choosing between extreme detail and print clarity, choose print clarity.
-- If choosing between realism and colourability, choose colourability.
-- If choosing between faint accuracy and bold attractive line art, choose bold attractive line art.
-- The final page should look sellable, finished, premium, and ready to include in a printed personalised colouring book.
+DARK / LOW-LIGHT PHOTO RULES:
+- remove darkness, flash glare, red-eye, colour casts, grain, blur, and muddy shadows
+- infer clean outlines from the visible subjects
+- do not copy photographic darkness into the output
+- do not use dark filled areas to represent shadows
+- keep the final page bright, white, clean, and colourable
+
+QUALITY BAR:
+- the result must be suitable for a paid personalised colouring book
+- it must look intentional, clean, premium, and print-ready
+- it must not look like a rough trace, AI sketch, messy comic panel, or unfinished draft
+- if a rule conflicts with making a pretty page, follow the rule
+- if colour appears, the output is wrong
+- if large filled areas appear, the output is wrong
+- if the main people are unrecognisable, the output is wrong
+- if the background is too busy to colour, the output is wrong
 `.trim();
 
 const STORY_BOOK_PROMPT_VERSION = "storybook_clipart_v1";
