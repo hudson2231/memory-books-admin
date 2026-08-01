@@ -7,7 +7,7 @@ export const GEMINI_IMAGE_MODEL =
 
 export const FAL_COLORING_MODEL =
   process.env.FAL_COLORING_MODEL?.trim() ||
-  "fal-ai/bytedance/seedream/v5/pro/edit";
+  "bytedance/seedream/v5/pro/edit";
 
 export const COLORING_BOOK_PROMPT_VERSION = "seedream5_color_bold_v1";
 export const STORYBOOK_PROMPT_VERSION = "storybook_clipart_v1";
