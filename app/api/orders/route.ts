@@ -83,6 +83,11 @@ export async function POST(request: Request) {
     const customerName = body.customer_name;
     const customerEmail = body.customer_email;
     const pageCount = Number(body.page_count || 20);
+    const productType =
+      body.product_type === "story_book" ? "story_book" : "colouring_book";
+    const productTitle =
+      productType === "story_book" ? "Test Story Book" : "Test Colouring Book";
+    const variantTitle = `${pageCount} Page`;
 
     if (!customerName || !customerEmail) {
       return NextResponse.json(
@@ -99,7 +104,9 @@ export async function POST(request: Request) {
         page_count: pageCount,
         status: "created",
         pdf_status: "not_exported",
-        product_type: "colouring_book",
+        product_type: productType,
+        product_title: productTitle,
+        variant_title: variantTitle,
       })
       .select("*")
       .single();
