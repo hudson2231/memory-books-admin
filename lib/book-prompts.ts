@@ -1,4 +1,7 @@
-export const COLORING_BOOK_PROMPT = `Turn the uploaded customer photo into a finished premium colouring-book illustration.
+export const COLORING_BOOK_PROMPT = `BLACK AND WHITE ONLY. The output must contain only black line art on a pure white background. No colour anywhere in the image.
+
+Turn the uploaded customer photo into a finished premium colouring-book illustration.
+
 The result must look like commercial colouring-book line art with confident black ink lines, clear shape design, and a polished printable finish. It must not look like a pencil sketch, tracing, or delicate art study.
 
 Preserve the main people exactly in count and overall arrangement. Keep each person recognisable by preserving facial likeness, hairstyle, expression, pose, clothing silhouette, and key accessories or objects. Faces must be clean, flattering, and natural.
@@ -6,17 +9,27 @@ Preserve the main people exactly in count and overall arrangement. Keep each per
 Redraw the photo into strong colourable line art:
 - use bold black contour lines
 - use thicker outer edges around people and important objects
-- use thinner interior detail lines for faces, hair, clothing folds, furniture, and background
-- keep lines smooth, intentional, and printable
-- avoid faint grey pencil marks, smudges, messy sketch texture, or overly delicate lines
+- use slightly lighter interior detail lines
+- convert hair, clothing, and objects into clean simplified sections
+- create large and medium enclosed spaces suitable for colouring
+- keep features crisp and readable
+- reduce tiny textures and incidental detail
 
-Keep the real setting and memory intact. Include useful background elements that make the scene feel complete, such as walls, furniture, windows, cars, trees, crowds, interiors, tables, drinks, pets, or scenery. Simplify clutter, but do not erase the environment or leave people floating in empty white space.
+Keep the background and setting recognisable, but simplify it aggressively into clean supporting line work. The people must remain the clear focal point.
 
-Make the page enjoyable to colour. Create large clean white spaces inside clothing, skin, objects, and background shapes. Do not use colour, shading, gradients, heavy hatching, grayscale fills, black filled clothing, black filled hair, or solid black backgrounds.
+Do not:
+- use colour anywhere
+- use shading, tonal rendering, grey fill, or cross-hatching
+- use solid black fill on clothing, hair, skin, or background
+- use faint, scratchy, or sketchy lines
+- over-texture skin, clothes, or walls
+- preserve the original photo’s lighting or colour values as filled areas
+- add extra people or remove main people
+- include readable text, logos, watermarks, or branding
 
-Do not add text, logos, labels, signatures, watermarks, borders, speech bubbles, or random objects. Do not change the memory into anime, cartoon caricature, comic book art, or realistic portrait sketching.
+Hair, clothes, and objects must stay mostly open and colourable, using line work instead of filled dark masses.
 
-Final output: black-and-white printable colouring-book page, premium, clean, bold, colourable, recognisable, and ready for a personalised printed book.`;
+Aim for a premium black-on-white page that feels bold, clean, and intentionally designed for colouring, with strong contrast and a polished published-book quality.`
 
 export const STORYBOOK_PROMPT = `Create a finished, premium, printable personalised story-book illustration from the uploaded customer photo.
 
