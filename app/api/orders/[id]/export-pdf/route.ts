@@ -102,7 +102,7 @@ function drawCoverText(
     color: black,
   });
 
-  page.drawText("♡", {
+  page.drawText("-", {
     x: pageWidth / 2 - 6,
     y: lineY - 8,
     size: 16,
