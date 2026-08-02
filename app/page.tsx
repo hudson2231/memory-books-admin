@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { supabaseBrowser } from "../lib/supabaseBrowser";
 import { useEffect, useMemo, useState } from "react";
 
 type Order = {
@@ -437,30 +438,77 @@ export default function Home() {
       const orderId = orderData.order.id;
 
       if (files.length > 0) {
-        const formData = new FormData();
-        formData.append("order_id", orderId);
-
-        files.forEach((file) => {
-          formData.append("files", file);
-        });
-
-        const uploadResponse = await fetch("/api/orders/upload", {
+        const signedResponse = await fetch("/api/orders/signed-upload-urls", {
           method: "POST",
-          body: formData,
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            order_id: orderId,
+            files: files.map((file) => ({
+              name: file.name,
+              type: file.type,
+              size: file.size,
+            })),
+          }),
         });
 
-        const uploadData = await uploadResponse.json();
+        const signedData = await signedResponse.json();
 
-        if (!uploadResponse.ok) {
+        if (!signedResponse.ok) {
           setMessage(
-            uploadData.error || "Order created, but image upload failed."
+            signedData.error || "Order created, but upload URLs could not be created."
+          );
+          await loadOrders();
+          return;
+        }
+
+        const uploadedImages = [];
+
+        for (let index = 0; index < files.length; index++) {
+          const file = files[index];
+          const upload = signedData.uploads[index];
+
+          const { error: uploadError } = await supabaseBrowser.storage
+            .from("originals")
+            .uploadToSignedUrl(upload.path, upload.token, file, {
+              contentType: upload.mime_type || file.type || "image/jpeg",
+            });
+
+          if (uploadError) {
+            setMessage(
+              `Order created, but image upload failed for ${file.name}: ${uploadError.message}`
+            );
+            await loadOrders();
+            return;
+          }
+
+          uploadedImages.push(upload);
+        }
+
+        const attachResponse = await fetch("/api/orders/attach-uploaded-images", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            order_id: orderId,
+            images: uploadedImages,
+          }),
+        });
+
+        const attachData = await attachResponse.json();
+
+        if (!attachResponse.ok) {
+          setMessage(
+            attachData.error || "Order created, but uploaded images could not be attached."
           );
           await loadOrders();
           return;
         }
 
         setMessage(
-          `Test order created with ${uploadData.images.length} uploaded image(s).`
+          `Test order created with ${attachData.images.length} uploaded image(s).`
         );
       } else {
         setMessage("Test order created without images.");
