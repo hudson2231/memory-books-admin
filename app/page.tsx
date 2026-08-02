@@ -492,8 +492,12 @@ export default function Home() {
       clearSelectedFiles();
 
       await loadOrders();
-    } catch {
-      setMessage("Failed to create test order.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown frontend error";
+
+      console.error("Create test order failed:", error);
+      setMessage(`Failed to create test order: ${message}`);
     } finally {
       setLoading(false);
     }
