@@ -450,36 +450,51 @@ export default function Home() {
       const orderId = orderData.order.id;
 
       if (files.length > 0) {
-        const formData = new FormData();
-        formData.append("order_id", orderId);
+        const uploadedImages = [];
 
-        files.forEach((file) => {
+        for (const file of files) {
+          const formData = new FormData();
+          formData.append("order_id", orderId);
           formData.append("files", file);
-        });
 
-        const uploadResponse = await fetch("/api/orders/upload", {
-          method: "POST",
-          body: formData,
-        });
+          const uploadResponse = await fetch("/api/orders/upload", {
+            method: "POST",
+            body: formData,
+          });
 
-        const uploadData = await uploadResponse.json();
+          const responseText = await uploadResponse.text();
 
-        if (!uploadResponse.ok) {
-          setMessage(
-            uploadData.error || "Order created, but image upload failed."
-          );
-          await loadOrders();
-          return;
-        }
+          let uploadData: any = {};
+          try {
+            uploadData = responseText ? JSON.parse(responseText) : {};
+          } catch {
+            uploadData = {
+              error: responseText || "Upload failed with a non-JSON response.",
+            };
+          }
 
-        if (!uploadData.images || uploadData.images.length === 0) {
-          setMessage("Order created, but no image rows were created. Do not use this order.");
-          await loadOrders();
-          return;
+          if (!uploadResponse.ok) {
+            setMessage(
+              uploadData.error ||
+                `Order created, but image upload failed for ${file.name}.`
+            );
+            await loadOrders();
+            return;
+          }
+
+          if (!uploadData.images || uploadData.images.length === 0) {
+            setMessage(
+              `Order created, but no image row was created for ${file.name}. Do not use this order.`
+            );
+            await loadOrders();
+            return;
+          }
+
+          uploadedImages.push(...uploadData.images);
         }
 
         setMessage(
-          `Test order created with ${uploadData.images.length} uploaded image(s).`
+          `Test order created with ${uploadedImages.length} uploaded image(s).`
         );
       } else {
         setMessage("Test order created without images.");
