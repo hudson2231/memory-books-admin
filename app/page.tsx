@@ -412,8 +412,19 @@ export default function Home() {
   }
 
   async function createTestOrder() {
-    setLoading(true);
     setMessage("");
+
+    if (!customerName.trim() || !customerEmail.trim()) {
+      setMessage("Customer name and email are required.");
+      return;
+    }
+
+    if (files.length === 0) {
+      setMessage("Please choose at least one customer photo before creating a test order.");
+      return;
+    }
+
+    setLoading(true);
 
     try {
       const orderResponse = await fetch("/api/orders", {
@@ -457,6 +468,12 @@ export default function Home() {
           setMessage(
             uploadData.error || "Order created, but image upload failed."
           );
+          await loadOrders();
+          return;
+        }
+
+        if (!uploadData.images || uploadData.images.length === 0) {
+          setMessage("Order created, but no image rows were created. Do not use this order.");
           await loadOrders();
           return;
         }
