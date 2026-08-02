@@ -254,7 +254,8 @@ function timeAgo(dateString: string) {
 export default function Home() {
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
-  const [pageCount, setPageCount] = useState("20");
+  const [productType, setProductType] = useState("colouring_book");
+  const [pageCount, setPageCount] = useState("2");
   const [files, setFiles] = useState<File[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeTab, setActiveTab] = useState<OrderTab>("all");
@@ -425,6 +426,7 @@ export default function Home() {
           customer_name: customerName,
           customer_email: customerEmail,
           page_count: Number(pageCount),
+          product_type: productType,
         }),
       });
 
@@ -516,7 +518,8 @@ export default function Home() {
 
       setCustomerName("");
       setCustomerEmail("");
-      setPageCount("20");
+      setProductType("colouring_book");
+      setPageCount("2");
       clearSelectedFiles();
 
       await loadOrders();
@@ -591,6 +594,20 @@ export default function Home() {
 
             <div>
               <label className="mb-2 block text-sm text-neutral-300">
+                Product type
+              </label>
+              <select
+                value={productType}
+                onChange={(event) => setProductType(event.target.value)}
+                className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-white outline-none focus:border-white"
+              >
+                <option value="colouring_book">Colouring Book</option>
+                <option value="story_book">Story Book</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm text-neutral-300">
                 Page count
               </label>
               <select
@@ -598,11 +615,11 @@ export default function Home() {
                 onChange={(event) => setPageCount(event.target.value)}
                 className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-white outline-none focus:border-white"
               >
-                <option value="10">10</option>
-                <option value="12">12</option>
-                <option value="20">20</option>
-                <option value="30">30</option>
-                <option value="40">40</option>
+                <option value="2">2 test pages</option>
+                <option value="4">4 test pages</option>
+                <option value="20">20 pages</option>
+                <option value="32">32 pages</option>
+                <option value="40">40 pages</option>
               </select>
             </div>
 
