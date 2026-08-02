@@ -5,6 +5,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
+const A4_PAGE_WIDTH = 595.28;
+const A4_PAGE_HEIGHT = 841.89;
+
+const A4_EXPORT_WIDTH_PX = 2480;
+const A4_EXPORT_HEIGHT_PX = 3508;
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -123,6 +129,21 @@ async function addCoverImagePage(
   page.drawImage(embeddedImage, box);
 }
 
+
+async function normaliseColouringPageToA4Png(originalBuffer: Buffer) {
+  return sharp(originalBuffer)
+    .rotate()
+    .flatten({ background: "#ffffff" })
+    .resize({
+      width: A4_EXPORT_WIDTH_PX,
+      height: A4_EXPORT_HEIGHT_PX,
+      fit: "cover",
+      position: "centre",
+    })
+    .png()
+    .toBuffer();
+}
+
 async function addImagePage(
   pdfDoc: PDFDocument,
   imageUrl: string,
@@ -132,6 +153,7 @@ async function addImagePage(
   options?: {
     caption?: string;
     captionFont?: any;
+    pageKind?: "colouring" | "story";
   }
 ) {
   const response = await fetch(imageUrl);
@@ -143,7 +165,25 @@ async function addImagePage(
   const arrayBuffer = await response.arrayBuffer();
   const originalBuffer = Buffer.from(arrayBuffer);
 
+  const pageKind = options?.pageKind || "colouring";
+
+  if (pageKind === "colouring") {
+    const a4PngBuffer = await normaliseColouringPageToA4Png(originalBuffer);
+    const embeddedImage = await pdfDoc.embedPng(a4PngBuffer);
+    const page = pdfDoc.addPage([pageWidth, pageHeight]);
+
+    page.drawImage(embeddedImage, {
+      x: 0,
+      y: 0,
+      width: pageWidth,
+      height: pageHeight,
+    });
+
+    return;
+  }
+
   const cleanPngBuffer = await sharp(originalBuffer)
+    .rotate()
     .flatten({ background: "#ffffff" })
     .png()
     .toBuffer();
@@ -151,14 +191,11 @@ async function addImagePage(
   const embeddedImage = await pdfDoc.embedPng(cleanPngBuffer);
   const page = pdfDoc.addPage([pageWidth, pageHeight]);
 
-  const isStoryPage = Boolean(options?.caption);
-
-  const outerMargin = isStoryPage ? 36 : 24;
+  const margin = 36;
   const caption = options?.caption || "";
   const captionAreaHeight = caption ? 90 : 0;
-
-  const imageAreaWidth = pageWidth - outerMargin * 2;
-  const imageAreaHeight = pageHeight - outerMargin * 2 - captionAreaHeight;
+  const imageAreaWidth = pageWidth - margin * 2;
+  const imageAreaHeight = pageHeight - margin * 2 - captionAreaHeight;
 
   const scale = Math.min(
     imageAreaWidth / embeddedImage.width,
@@ -170,7 +207,7 @@ async function addImagePage(
 
   const x = (pageWidth - drawWidth) / 2;
   const y = captionAreaHeight
-    ? outerMargin + captionAreaHeight + (imageAreaHeight - drawHeight) / 2
+    ? margin + captionAreaHeight + (imageAreaHeight - drawHeight) / 2
     : (pageHeight - drawHeight) / 2;
 
   page.drawImage(embeddedImage, {
@@ -186,7 +223,7 @@ async function addImagePage(
     const lineHeight = 21;
     const totalTextHeight = lines.length * lineHeight;
     const startY =
-      outerMargin +
+      margin +
       (captionAreaHeight - totalTextHeight) / 2 +
       totalTextHeight -
       fontSize;
@@ -248,8 +285,8 @@ export async function POST(
     const productType = getProductType(order);
     const isStoryBook = productType === "story_book";
 
-    const pageWidth = 595.28;
-    const pageHeight = 841.89;
+    const pageWidth = A4_PAGE_WIDTH;
+    const pageHeight = A4_PAGE_HEIGHT;
 
     if (isStoryBook) {
       for (const image of images) {
@@ -262,6 +299,7 @@ export async function POST(
           pageWidth,
           pageHeight,
           {
+            pageKind: "story",
             caption: cleanCaption(image.caption_text),
             captionFont,
           }
@@ -303,7 +341,10 @@ export async function POST(
           image.generated_url,
           image.page_number,
           pageWidth,
-          pageHeight
+          pageHeight,
+          {
+            pageKind: "colouring",
+          }
         );
 
         addBlankPage(pdfDoc, pageWidth, pageHeight);
