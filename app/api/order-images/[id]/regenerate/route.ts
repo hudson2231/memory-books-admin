@@ -158,8 +158,7 @@ export async function POST(
   } catch {
     regenerationInstruction = null;
   }
-
-  const { data: image, error: imageError } = await supabaseAdmin
+    const { data: image, error: imageError } = await supabaseAdmin
     .from("order_images")
     .select("*")
     .eq("id", imageId)
@@ -223,7 +222,7 @@ export async function POST(
             promptText,
             originalUrl: image.original_url,
             previousGeneratedUrl: image.generated_url || null,
-            aspectRatio: getAspectRatioForImage(image),
+            aspectRatio: "3:4",
           });
 
     const orderSlug = slugify(order.customer_name || "order");

@@ -257,7 +257,7 @@ export async function generateColoringWithFal(params: {
     input: {
       prompt: params.promptText,
       image_urls: imageUrls,
-      aspect_ratio: params.aspectRatio || "4:3",
+      aspect_ratio: params.aspectRatio || "3:4",
     },
     logs: true,
   });

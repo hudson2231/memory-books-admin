@@ -1,5 +1,7 @@
 export const COLORING_BOOK_PROMPT = `BLACK AND WHITE ONLY. The output must contain only black line art on a pure white background. No colour anywhere in the image.
 
+The final output must be composed as an A4 portrait colouring-book page. If the uploaded photo is landscape or horizontal, naturally recompose it into a portrait page while preserving all main people, facial likeness, pose, clothing, and key objects. Do not simply place a small landscape image in the centre of a tall page.
+
 Turn the uploaded customer photo into a finished premium colouring-book illustration.
 
 The result must look like commercial colouring-book line art with confident black ink lines, clear shape design, and a polished printable finish. It must not look like a pencil sketch, tracing, or delicate art study.
@@ -19,6 +21,7 @@ Keep the background and setting recognisable, but simplify it aggressively into 
 
 Do not:
 - use colour anywhere
+- output a landscape page, horizontal canvas, tiny centred scene, or large unused blank space around the main artwork
 - use shading, tonal rendering, grey fill, or cross-hatching
 - use solid black fill on clothing, hair, skin, or background
 - use faint, scratchy, or sketchy lines

@@ -94,7 +94,7 @@ export async function POST(
           : await generateColoringWithFal({
               promptText,
               originalUrl: image.original_url,
-              aspectRatio: getAspectRatioForImage(image),
+              aspectRatio: "3:4",
             });
 
       const generatedUrl = await uploadGeneratedBuffer({
