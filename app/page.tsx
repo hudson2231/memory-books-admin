@@ -412,19 +412,8 @@ export default function Home() {
   }
 
   async function createTestOrder() {
-    setMessage("");
-
-    if (!customerName.trim() || !customerEmail.trim()) {
-      setMessage("Customer name and email are required.");
-      return;
-    }
-
-    if (files.length === 0) {
-      setMessage("Please choose at least one customer photo before creating a test order.");
-      return;
-    }
-
     setLoading(true);
+    setMessage("");
 
     try {
       const orderResponse = await fetch("/api/orders", {
@@ -450,51 +439,30 @@ export default function Home() {
       const orderId = orderData.order.id;
 
       if (files.length > 0) {
-        const uploadedImages = [];
+        const formData = new FormData();
+        formData.append("order_id", orderId);
 
-        for (const file of files) {
-          const formData = new FormData();
-          formData.append("order_id", orderId);
+        files.forEach((file) => {
           formData.append("files", file);
+        });
 
-          const uploadResponse = await fetch("/api/orders/upload", {
-            method: "POST",
-            body: formData,
-          });
+        const uploadResponse = await fetch("/api/orders/upload", {
+          method: "POST",
+          body: formData,
+        });
 
-          const responseText = await uploadResponse.text();
+        const uploadData = await uploadResponse.json();
 
-          let uploadData: any = {};
-          try {
-            uploadData = responseText ? JSON.parse(responseText) : {};
-          } catch {
-            uploadData = {
-              error: responseText || "Upload failed with a non-JSON response.",
-            };
-          }
-
-          if (!uploadResponse.ok) {
-            setMessage(
-              uploadData.error ||
-                `Order created, but image upload failed for ${file.name}.`
-            );
-            await loadOrders();
-            return;
-          }
-
-          if (!uploadData.images || uploadData.images.length === 0) {
-            setMessage(
-              `Order created, but no image row was created for ${file.name}. Do not use this order.`
-            );
-            await loadOrders();
-            return;
-          }
-
-          uploadedImages.push(...uploadData.images);
+        if (!uploadResponse.ok) {
+          setMessage(
+            uploadData.error || "Order created, but image upload failed."
+          );
+          await loadOrders();
+          return;
         }
 
         setMessage(
-          `Test order created with ${uploadedImages.length} uploaded image(s).`
+          `Test order created with ${uploadData.images.length} uploaded image(s).`
         );
       } else {
         setMessage("Test order created without images.");
@@ -507,12 +475,8 @@ export default function Home() {
       clearSelectedFiles();
 
       await loadOrders();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unknown frontend error";
-
-      console.error("Create test order failed:", error);
-      setMessage(`Failed to create test order: ${message}`);
+    } catch {
+      setMessage("Failed to create test order.");
     } finally {
       setLoading(false);
     }
