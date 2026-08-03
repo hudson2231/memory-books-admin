@@ -85,6 +85,22 @@ export async function POST(request: Request) {
     const pageCount = Number(body.page_count || 20);
     const productType =
       body.product_type === "story_book" ? "story_book" : "colouring_book";
+
+    const graceRecipient =
+      typeof body.grace_recipient === "string"
+        ? body.grace_recipient.trim().slice(0, 80)
+        : "";
+
+    const graceFrom =
+      typeof body.grace_from === "string"
+        ? body.grace_from.trim().slice(0, 80)
+        : "";
+
+    const graceMessage =
+      typeof body.grace_message === "string"
+        ? body.grace_message.trim().slice(0, 240)
+        : "";
+
     const productTitle =
       productType === "story_book" ? "Test Story Book" : "Test Colouring Book";
     const variantTitle = `${pageCount} Page`;
@@ -107,6 +123,9 @@ export async function POST(request: Request) {
         product_type: productType,
         product_title: productTitle,
         variant_title: variantTitle,
+        grace_recipient: graceRecipient || null,
+        grace_from: graceFrom || null,
+        grace_message: graceMessage || null,
       })
       .select("*")
       .single();

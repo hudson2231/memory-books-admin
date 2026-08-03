@@ -15,6 +15,9 @@ type Order = {
   pdf_status: string | null;
   exported_at: string | null;
   product_type?: string | null;
+  grace_message?: string | null;
+  grace_from?: string | null;
+  grace_recipient?: string | null;
   product_title?: string | null;
   variant_title?: string | null;
   financial_status?: string | null;
@@ -254,6 +257,9 @@ function timeAgo(dateString: string) {
 export default function Home() {
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
+  const [graceRecipient, setGraceRecipient] = useState("");
+  const [graceFrom, setGraceFrom] = useState("");
+  const [graceMessage, setGraceMessage] = useState("");
   const [productType, setProductType] = useState("colouring_book");
   const [pageCount, setPageCount] = useState("2");
   const [files, setFiles] = useState<File[]>([]);
@@ -427,6 +433,9 @@ export default function Home() {
           customer_email: customerEmail,
           page_count: Number(pageCount),
           product_type: productType,
+          grace_recipient: graceRecipient,
+          grace_from: graceFrom,
+          grace_message: graceMessage,
         }),
       });
 
@@ -518,6 +527,9 @@ export default function Home() {
 
       setCustomerName("");
       setCustomerEmail("");
+      setGraceRecipient("");
+      setGraceFrom("");
+      setGraceMessage("");
       setProductType("colouring_book");
       setPageCount("2");
       clearSelectedFiles();
@@ -621,6 +633,49 @@ export default function Home() {
                 <option value="32">32 pages</option>
                 <option value="40">40 pages</option>
               </select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm text-neutral-300">
+                Made especially for
+              </label>
+              <input
+                value={graceRecipient}
+                onChange={(event) => setGraceRecipient(event.target.value)}
+                maxLength={80}
+                className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-white outline-none focus:border-white"
+                placeholder="Jasmine"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm text-neutral-300">
+                From
+              </label>
+              <input
+                value={graceFrom}
+                onChange={(event) => setGraceFrom(event.target.value)}
+                maxLength={80}
+                className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-white outline-none focus:border-white"
+                placeholder="Hudson"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm text-neutral-300">
+                Grace page message
+              </label>
+              <textarea
+                value={graceMessage}
+                onChange={(event) => setGraceMessage(event.target.value)}
+                maxLength={240}
+                rows={3}
+                className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 text-white outline-none focus:border-white"
+                placeholder="Thank you for all the memories. I hope this book reminds you of our favourite moments."
+              />
+              <p className="mt-1 text-xs text-neutral-500">
+                Optional. Used on the first inside page of the PDF.
+              </p>
             </div>
 
             <div>
