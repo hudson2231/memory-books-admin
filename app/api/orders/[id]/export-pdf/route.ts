@@ -81,6 +81,144 @@ function getGelatoPageCountForColouringBook(artworkPages: number) {
   return artworkPages * 2 + 2;
 }
 
+function cleanGraceText(value: unknown, maxLength: number) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function wrapGraceText(text: string, maxCharsPerLine: number) {
+  const words = text.split(" ").filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+
+    if (next.length > maxCharsPerLine && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+
+  if (current) lines.push(current);
+  return lines.slice(0, 5);
+}
+
+function addGracePage(
+  pdfDoc: PDFDocument,
+  pageWidth: number,
+  pageHeight: number,
+  normalFont: any,
+  boldFont: any,
+  order: Record<string, any>
+) {
+  const page = pdfDoc.addPage([pageWidth, pageHeight]);
+
+  const darkGreen = rgb(0.12, 0.18, 0.1);
+  const gold = rgb(0.55, 0.42, 0.2);
+  const muted = rgb(0.42, 0.38, 0.3);
+
+  const recipient = cleanGraceText(order.grace_recipient, 80);
+  const fromName = cleanGraceText(order.grace_from, 80);
+  const message = cleanGraceText(order.grace_message, 240);
+
+  const brand = "Memory Books";
+  const brandSize = 24;
+  const brandWidth = normalFont.widthOfTextAtSize(brand, brandSize);
+
+  page.drawText(brand, {
+    x: (pageWidth - brandWidth) / 2,
+    y: pageHeight - 130,
+    size: brandSize,
+    font: normalFont,
+    color: gold,
+  });
+
+  const title = recipient ? "Made especially for" : "Your Memories Made to Colour";
+  const titleSize = recipient ? 22 : 30;
+  const titleWidth = normalFont.widthOfTextAtSize(title, titleSize);
+
+  page.drawText(title, {
+    x: (pageWidth - titleWidth) / 2,
+    y: pageHeight - 250,
+    size: titleSize,
+    font: normalFont,
+    color: muted,
+  });
+
+  if (recipient) {
+    const recipientSize = 46;
+    const recipientWidth = boldFont.widthOfTextAtSize(recipient, recipientSize);
+
+    page.drawText(recipient, {
+      x: (pageWidth - recipientWidth) / 2,
+      y: pageHeight - 315,
+      size: recipientSize,
+      font: boldFont,
+      color: darkGreen,
+    });
+  }
+
+  if (fromName) {
+    const fromText = `From ${fromName}`;
+    const fromSize = 22;
+    const fromWidth = normalFont.widthOfTextAtSize(fromText, fromSize);
+
+    page.drawText(fromText, {
+      x: (pageWidth - fromWidth) / 2,
+      y: pageHeight - 385,
+      size: fromSize,
+      font: normalFont,
+      color: gold,
+    });
+  }
+
+  if (message) {
+    const lines = wrapGraceText(message, 46);
+    const fontSize = 17;
+    const lineHeight = 25;
+    const startY = pageHeight - 470;
+
+    lines.forEach((line, index) => {
+      const lineWidth = normalFont.widthOfTextAtSize(line, fontSize);
+
+      page.drawText(line, {
+        x: (pageWidth - lineWidth) / 2,
+        y: startY - index * lineHeight,
+        size: fontSize,
+        font: normalFont,
+        color: muted,
+      });
+    });
+  } else if (!recipient && !fromName) {
+    const fallback = "A personalised colouring book made especially for you.";
+    const fallbackSize = 17;
+    const fallbackWidth = normalFont.widthOfTextAtSize(fallback, fallbackSize);
+
+    page.drawText(fallback, {
+      x: (pageWidth - fallbackWidth) / 2,
+      y: pageHeight - 370,
+      size: fallbackSize,
+      font: normalFont,
+      color: muted,
+    });
+  }
+
+  const footer = "Colour, gift, and keep forever.";
+  const footerSize = 14;
+  const footerWidth = normalFont.widthOfTextAtSize(footer, footerSize);
+
+  page.drawText(footer, {
+    x: (pageWidth - footerWidth) / 2,
+    y: 105,
+    size: footerSize,
+    font: normalFont,
+    color: gold,
+  });
+}
+
 function addBlankPage(pdfDoc: PDFDocument, pageWidth: number, pageHeight: number) {
   pdfDoc.addPage([pageWidth, pageHeight]);
 }
@@ -280,6 +418,8 @@ export async function POST(
   try {
     const pdfDoc = await PDFDocument.create();
 
+    const normalFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+    const boldFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
     const captionFont = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
 
     const productType = getProductType(order);
@@ -333,7 +473,11 @@ export async function POST(
 
       await addCoverImagePage(pdfDoc, frontCoverPath, pageWidth, pageHeight);
 
-      for (const image of images.slice(0, expectedArtworkPages)) {
+      addGracePage(pdfDoc, pageWidth, pageHeight, normalFont, boldFont, order);
+
+      const colouringImages = images.slice(0, expectedArtworkPages);
+
+      for (const [index, image] of colouringImages.entries()) {
         if (!image.generated_url) continue;
 
         await addImagePage(
@@ -347,7 +491,11 @@ export async function POST(
           }
         );
 
-        addBlankPage(pdfDoc, pageWidth, pageHeight);
+        // Blank reverse side after every colouring page except the final artwork page.
+        // The grace page uses the inside-front page, so total Gelato page count stays the same.
+        if (index < colouringImages.length - 1) {
+          addBlankPage(pdfDoc, pageWidth, pageHeight);
+        }
       }
 
       await addCoverImagePage(pdfDoc, backCoverPath, pageWidth, pageHeight);
