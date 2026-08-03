@@ -206,7 +206,7 @@ function addGracePage(
     color: paleGold,
   });
 
-  drawCenteredText(page, "♡", normalFont, 16, pageHeight - 142, pageWidth, gold);
+  drawCenteredText(page, "·", normalFont, 16, pageHeight - 142, pageWidth, gold);
 
   if (recipient) {
     drawCenteredText(
@@ -266,7 +266,7 @@ function addGracePage(
     color: paleGold,
   });
 
-  drawCenteredText(page, "♡", normalFont, 13, pageHeight - 372, pageWidth, gold);
+  drawCenteredText(page, "·", normalFont, 13, pageHeight - 372, pageWidth, gold);
 
   if (fromName) {
     drawCenteredText(
