@@ -86,15 +86,21 @@ function cleanGraceText(value: unknown, maxLength: number) {
   return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
 
-function wrapGraceText(text: string, maxCharsPerLine: number) {
+function wrapGraceTextByWidth(
+  text: string,
+  font: any,
+  fontSize: number,
+  maxWidth: number
+) {
   const words = text.split(" ").filter(Boolean);
   const lines: string[] = [];
   let current = "";
 
   for (const word of words) {
     const next = current ? `${current} ${word}` : word;
+    const nextWidth = font.widthOfTextAtSize(next, fontSize);
 
-    if (next.length > maxCharsPerLine && current) {
+    if (nextWidth > maxWidth && current) {
       lines.push(current);
       current = word;
     } else {
@@ -103,7 +109,28 @@ function wrapGraceText(text: string, maxCharsPerLine: number) {
   }
 
   if (current) lines.push(current);
-  return lines.slice(0, 5);
+  return lines.slice(0, 6);
+}
+
+function drawCenteredText(
+  page: any,
+  text: string,
+  font: any,
+  size: number,
+  y: number,
+  pageWidth: number,
+  color: any,
+  options?: { characterSpacing?: number }
+) {
+  const width = font.widthOfTextAtSize(text, size);
+  page.drawText(text, {
+    x: (pageWidth - width) / 2,
+    y,
+    size,
+    font,
+    color,
+    characterSpacing: options?.characterSpacing,
+  });
 }
 
 function addGracePage(
@@ -116,108 +143,192 @@ function addGracePage(
 ) {
   const page = pdfDoc.addPage([pageWidth, pageHeight]);
 
-  const darkGreen = rgb(0.12, 0.18, 0.1);
-  const gold = rgb(0.55, 0.42, 0.2);
-  const muted = rgb(0.42, 0.38, 0.3);
+  const cream = rgb(0.985, 0.955, 0.885);
+  const darkGreen = rgb(0.13, 0.18, 0.1);
+  const softGreen = rgb(0.36, 0.43, 0.28);
+  const gold = rgb(0.58, 0.45, 0.22);
+  const muted = rgb(0.36, 0.32, 0.26);
+  const paleGold = rgb(0.78, 0.67, 0.43);
 
   const recipient = cleanGraceText(order.grace_recipient, 80);
   const fromName = cleanGraceText(order.grace_from, 80);
   const message = cleanGraceText(order.grace_message, 240);
 
-  const brand = "Memory Books";
-  const brandSize = 24;
-  const brandWidth = normalFont.widthOfTextAtSize(brand, brandSize);
-
-  page.drawText(brand, {
-    x: (pageWidth - brandWidth) / 2,
-    y: pageHeight - 130,
-    size: brandSize,
-    font: normalFont,
-    color: gold,
+  page.drawRectangle({
+    x: 0,
+    y: 0,
+    width: pageWidth,
+    height: pageHeight,
+    color: cream,
   });
 
-  const title = recipient ? "Made especially for" : "Your Memories Made to Colour";
-  const titleSize = recipient ? 22 : 30;
-  const titleWidth = normalFont.widthOfTextAtSize(title, titleSize);
+  const borderMargin = 34;
 
-  page.drawText(title, {
-    x: (pageWidth - titleWidth) / 2,
-    y: pageHeight - 250,
-    size: titleSize,
-    font: normalFont,
-    color: muted,
+  page.drawRectangle({
+    x: borderMargin,
+    y: borderMargin,
+    width: pageWidth - borderMargin * 2,
+    height: pageHeight - borderMargin * 2,
+    borderColor: rgb(0.78, 0.72, 0.58),
+    borderWidth: 0.65,
   });
+
+  page.drawRectangle({
+    x: borderMargin + 8,
+    y: borderMargin + 8,
+    width: pageWidth - (borderMargin + 8) * 2,
+    height: pageHeight - (borderMargin + 8) * 2,
+    borderColor: rgb(0.88, 0.82, 0.68),
+    borderWidth: 0.35,
+  });
+
+  drawCenteredText(
+    page,
+    "Memory Books",
+    normalFont,
+    23,
+    pageHeight - 118,
+    pageWidth,
+    gold
+  );
+
+  page.drawLine({
+    start: { x: pageWidth / 2 - 118, y: pageHeight - 134 },
+    end: { x: pageWidth / 2 - 36, y: pageHeight - 134 },
+    thickness: 0.6,
+    color: paleGold,
+  });
+
+  page.drawLine({
+    start: { x: pageWidth / 2 + 36, y: pageHeight - 134 },
+    end: { x: pageWidth / 2 + 118, y: pageHeight - 134 },
+    thickness: 0.6,
+    color: paleGold,
+  });
+
+  drawCenteredText(page, "♡", normalFont, 16, pageHeight - 142, pageWidth, gold);
 
   if (recipient) {
-    const recipientSize = 46;
-    const recipientWidth = boldFont.widthOfTextAtSize(recipient, recipientSize);
+    drawCenteredText(
+      page,
+      "MADE ESPECIALLY FOR",
+      normalFont,
+      10,
+      pageHeight - 255,
+      pageWidth,
+      gold,
+      { characterSpacing: 1.9 }
+    );
 
-    page.drawText(recipient, {
-      x: (pageWidth - recipientWidth) / 2,
-      y: pageHeight - 315,
-      size: recipientSize,
-      font: boldFont,
-      color: darkGreen,
-    });
+    const recipientSize = recipient.length > 16 ? 42 : 50;
+    drawCenteredText(
+      page,
+      recipient,
+      boldFont,
+      recipientSize,
+      pageHeight - 325,
+      pageWidth,
+      darkGreen
+    );
+  } else {
+    drawCenteredText(
+      page,
+      "Your Memories",
+      boldFont,
+      45,
+      pageHeight - 285,
+      pageWidth,
+      darkGreen
+    );
+
+    drawCenteredText(
+      page,
+      "Made to Colour",
+      boldFont,
+      45,
+      pageHeight - 340,
+      pageWidth,
+      darkGreen
+    );
   }
 
-  if (fromName) {
-    const fromText = `From ${fromName}`;
-    const fromSize = 22;
-    const fromWidth = normalFont.widthOfTextAtSize(fromText, fromSize);
+  page.drawLine({
+    start: { x: pageWidth / 2 - 82, y: pageHeight - 365 },
+    end: { x: pageWidth / 2 - 22, y: pageHeight - 365 },
+    thickness: 0.55,
+    color: paleGold,
+  });
 
-    page.drawText(fromText, {
-      x: (pageWidth - fromWidth) / 2,
-      y: pageHeight - 385,
-      size: fromSize,
-      font: normalFont,
-      color: gold,
-    });
+  page.drawLine({
+    start: { x: pageWidth / 2 + 22, y: pageHeight - 365 },
+    end: { x: pageWidth / 2 + 82, y: pageHeight - 365 },
+    thickness: 0.55,
+    color: paleGold,
+  });
+
+  drawCenteredText(page, "♡", normalFont, 13, pageHeight - 372, pageWidth, gold);
+
+  if (fromName) {
+    drawCenteredText(
+      page,
+      `From ${fromName}`,
+      normalFont,
+      23,
+      pageHeight - 420,
+      pageWidth,
+      gold
+    );
   }
 
   if (message) {
-    const lines = wrapGraceText(message, 46);
-    const fontSize = 17;
-    const lineHeight = 25;
-    const startY = pageHeight - 470;
+    const messageFontSize = 18;
+    const lineHeight = 27;
+    const maxTextWidth = pageWidth - 170;
+    const lines = wrapGraceTextByWidth(
+      message,
+      normalFont,
+      messageFontSize,
+      maxTextWidth
+    );
+
+    const totalHeight = (lines.length - 1) * lineHeight;
+    const startY = pageHeight - 510 + totalHeight / 2;
 
     lines.forEach((line, index) => {
-      const lineWidth = normalFont.widthOfTextAtSize(line, fontSize);
-
-      page.drawText(line, {
-        x: (pageWidth - lineWidth) / 2,
-        y: startY - index * lineHeight,
-        size: fontSize,
-        font: normalFont,
-        color: muted,
-      });
+      drawCenteredText(
+        page,
+        line,
+        normalFont,
+        messageFontSize,
+        startY - index * lineHeight,
+        pageWidth,
+        muted
+      );
     });
   } else if (!recipient && !fromName) {
-    const fallback = "A personalised colouring book made especially for you.";
-    const fallbackSize = 17;
-    const fallbackWidth = normalFont.widthOfTextAtSize(fallback, fallbackSize);
-
-    page.drawText(fallback, {
-      x: (pageWidth - fallbackWidth) / 2,
-      y: pageHeight - 370,
-      size: fallbackSize,
-      font: normalFont,
-      color: muted,
-    });
+    drawCenteredText(
+      page,
+      "A personalised colouring book made especially for you.",
+      normalFont,
+      17,
+      pageHeight - 470,
+      pageWidth,
+      muted
+    );
   }
 
-  const footer = "Colour, gift, and keep forever.";
-  const footerSize = 14;
-  const footerWidth = normalFont.widthOfTextAtSize(footer, footerSize);
-
-  page.drawText(footer, {
-    x: (pageWidth - footerWidth) / 2,
-    y: 105,
-    size: footerSize,
-    font: normalFont,
-    color: gold,
-  });
+  drawCenteredText(
+    page,
+    "COLOUR, GIFT, AND KEEP FOREVER.",
+    normalFont,
+    9,
+    86,
+    pageWidth,
+    softGreen,
+    { characterSpacing: 2.2 }
+  );
 }
+
 
 function addBlankPage(pdfDoc: PDFDocument, pageWidth: number, pageHeight: number) {
   pdfDoc.addPage([pageWidth, pageHeight]);
