@@ -243,7 +243,7 @@ function addGracePage(
 
     drawCenteredText(
       page,
-      "Made to Colour",
+      order.product_type === "story_book" ? "Made into a Story Book" : "Made to Colour",
       boldFont,
       45,
       pageHeight - 340,
