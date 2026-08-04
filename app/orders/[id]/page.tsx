@@ -161,7 +161,7 @@ export default function OrderDetailPage() {
         );
       } else if (failedTotal > 0) {
         setMessage(
-          `Generation finished, but ${failedTotal} page(s) failed. Retry those failed pages or manually replace them before exporting.`
+          `Generation finished, but ${failedTotal} page(s) failed. Click Generate All Pages again to retry failed pages, or manually replace them.`
         );
       } else {
         setMessage(`Generation finished. ${totalGenerated} page(s) generated.`);

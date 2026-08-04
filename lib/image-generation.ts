@@ -1,4 +1,5 @@
 import { fal } from "@fal-ai/client";
+import sharp from "sharp";
 import { COLORING_BOOK_PROMPT, STORYBOOK_PROMPT } from "./book-prompts";
 import { supabaseAdmin } from "./supabaseAdmin";
 
@@ -244,6 +245,34 @@ async function uploadUrlToFalStorage(url: string) {
   return await fal.storage.upload(blob);
 }
 
+async function prepareImageUrlForFal(url: string) {
+  const downloaded = await downloadUrlToBuffer(url);
+
+  const cleanJpegBuffer = await sharp(downloaded.buffer, {
+    failOn: "none",
+    animated: false,
+  })
+    .rotate()
+    .flatten({ background: "#ffffff" })
+    .resize({
+      width: 1800,
+      height: 2400,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .jpeg({
+      quality: 92,
+      mozjpeg: true,
+    })
+    .toBuffer();
+
+  const blob = new Blob([new Uint8Array(cleanJpegBuffer)], {
+    type: "image/jpeg",
+  });
+
+  return await fal.storage.upload(blob);
+}
+
 export async function generateColoringWithFal(params: {
   promptText: string;
   originalUrl: string;
@@ -260,24 +289,24 @@ export async function generateColoringWithFal(params: {
     credentials: apiKey,
   });
 
-  let falOriginalUrl = params.originalUrl;
-  let falPreviousGeneratedUrl = params.previousGeneratedUrl || null;
+  let falOriginalUrl: string;
+  let falPreviousGeneratedUrl: string | null = null;
 
   try {
-    falOriginalUrl = await uploadUrlToFalStorage(params.originalUrl);
+    falOriginalUrl = await prepareImageUrlForFal(params.originalUrl);
 
     if (params.previousGeneratedUrl) {
-      falPreviousGeneratedUrl = await uploadUrlToFalStorage(
+      falPreviousGeneratedUrl = await prepareImageUrlForFal(
         params.previousGeneratedUrl
       );
     }
-  } catch (storageError) {
+  } catch (prepareError) {
     const message =
-      storageError instanceof Error
-        ? storageError.message
-        : "Unknown Fal storage upload error.";
+      prepareError instanceof Error
+        ? prepareError.message
+        : "Unknown image preparation error.";
 
-    throw new Error(`Fal could not prepare the source image. ${message}`);
+    throw new Error(`Could not prepare image for Fal. ${message}`);
   }
 
   const imageUrls = falPreviousGeneratedUrl
@@ -299,10 +328,11 @@ export async function generateColoringWithFal(params: {
     const message =
       falError instanceof Error ? falError.message : "Unknown Fal error.";
 
-    throw new Error(`Fal generation failed. ${message}`);
+    throw new Error(`Fal generation failed after clean JPG upload. ${message}`);
   }
 
-  const outputUrl = result?.data?.images?.[0]?.url || result?.images?.[0]?.url;
+  const outputUrl =
+    result?.data?.images?.[0]?.url || result?.images?.[0]?.url;
 
   if (!outputUrl) {
     throw new Error("Fal returned no output image.");
@@ -316,3 +346,4 @@ export async function generateColoringWithFal(params: {
     modelUsed: FAL_COLORING_MODEL,
   };
 }
+

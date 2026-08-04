@@ -21,7 +21,7 @@ function isFailed(image: Record<string, any>) {
   return image.status === "failed";
 }
 
-function isNormallyPending(image: Record<string, any>) {
+function isPending(image: Record<string, any>) {
   return !isGenerated(image) && !isFailed(image);
 }
 
@@ -31,7 +31,7 @@ export async function POST(
 ) {
   const { id: orderId } = await context.params;
 
-  console.log(`[generate] Starting order generation: ${orderId}`);
+  console.log(`[generate] start order=${orderId}`);
 
   const { data: order, error: orderError } = await supabaseAdmin
     .from("orders")
@@ -40,24 +40,17 @@ export async function POST(
     .single();
 
   if (orderError || !order) {
-    console.error(`[generate] Order not found: ${orderId}`, orderError);
     return NextResponse.json({ error: "Order not found." }, { status: 404 });
   }
 
   const productType = getProductType(order);
 
   if (productType === "story_book" && !process.env.GEMINI_API_KEY?.trim()) {
-    return NextResponse.json(
-      { error: "Missing GEMINI_API_KEY." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Missing GEMINI_API_KEY." }, { status: 500 });
   }
 
   if (productType === "colouring_book" && !process.env.FAL_KEY?.trim()) {
-    return NextResponse.json(
-      { error: "Missing FAL_KEY." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Missing FAL_KEY." }, { status: 500 });
   }
 
   const { data: allImages, error: imagesError } = await supabaseAdmin
@@ -67,26 +60,18 @@ export async function POST(
     .order("page_number", { ascending: true });
 
   if (imagesError) {
-    console.error(`[generate] Could not load images for order ${orderId}`, imagesError);
     return NextResponse.json({ error: imagesError.message }, { status: 500 });
   }
 
   const images = allImages || [];
 
-  const normalPendingImages = images.filter(isNormallyPending);
-  const failedImages = images.filter(
-    (image) => !isGenerated(image) && isFailed(image)
-  );
+  const pendingImages = images.filter(isPending);
+  const failedImages = images.filter((image) => !isGenerated(image) && isFailed(image));
 
-  /*
-    Important:
-    - Generate normal uploaded/not-generated pages first.
-    - Only retry failed pages if there are no normal pending pages left.
-    This prevents 1 bad page from blocking the remaining 18 pages.
-  */
+  // Normal pages first. Only retry failed pages after no normal pending pages remain.
   const selectedImages =
-    normalPendingImages.length > 0
-      ? normalPendingImages.slice(0, MAX_IMAGES_PER_REQUEST)
+    pendingImages.length > 0
+      ? pendingImages.slice(0, MAX_IMAGES_PER_REQUEST)
       : failedImages.slice(0, MAX_IMAGES_PER_REQUEST);
 
   if (selectedImages.length === 0) {
@@ -99,23 +84,15 @@ export async function POST(
   const orderSlug = slugify(order.customer_name || "order");
   const shortOrderId = order.id.slice(0, 8);
   const orderFolder = `${orderSlug}-${shortOrderId}`;
-
   const generatedResults = [];
 
   for (const image of selectedImages) {
-    const pageNumber = image.page_number;
-
     try {
-      console.log(
-        `[generate] Generating order ${orderId}, page ${pageNumber}, image ${image.id}`
-      );
+      console.log(`[generate] page=${image.page_number} image=${image.id}`);
 
       await supabaseAdmin
         .from("order_images")
-        .update({
-          status: "generating",
-          error_message: null,
-        })
+        .update({ status: "generating", error_message: null })
         .eq("id", image.id);
 
       const promptText = getPromptForOrder(order, image);
@@ -158,18 +135,13 @@ export async function POST(
 
       if (updateError) throw new Error(updateError.message);
 
-      console.log(
-        `[generate] Generated order ${orderId}, page ${pageNumber}`
-      );
-
       generatedResults.push(updatedImage);
+      console.log(`[generate] success page=${image.page_number}`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown generation error.";
 
-      console.error(
-        `[generate] Failed order ${orderId}, page ${pageNumber}: ${message}`
-      );
+      console.error(`[generate] failed page=${image.page_number}: ${message}`);
 
       await supabaseAdmin
         .from("order_images")
@@ -181,29 +153,25 @@ export async function POST(
 
       generatedResults.push({
         id: image.id,
-        page_number: pageNumber,
+        page_number: image.page_number,
         status: "failed",
         error_message: message,
       });
     }
   }
 
-  const { data: refreshedImages, error: refreshedError } = await supabaseAdmin
+  const { data: refreshedImages, error: refreshError } = await supabaseAdmin
     .from("order_images")
-    .select("id,page_number,status,generated_url")
-    .eq("order_id", orderId)
-    .order("page_number", { ascending: true });
+    .select("id,status,generated_url")
+    .eq("order_id", orderId);
 
-  if (refreshedError) {
-    return NextResponse.json({ error: refreshedError.message }, { status: 500 });
+  if (refreshError) {
+    return NextResponse.json({ error: refreshError.message }, { status: 500 });
   }
 
   const refreshed = refreshedImages || [];
-
-  const remainingNormal = refreshed.filter(isNormallyPending).length;
-  const failedTotal = refreshed.filter(
-    (image) => !isGenerated(image) && isFailed(image)
-  ).length;
+  const remaining = refreshed.filter(isPending).length;
+  const failedTotal = refreshed.filter((image) => !isGenerated(image) && isFailed(image)).length;
 
   const generatedThisRun = generatedResults.filter(
     (result) => result.status === "generated"
@@ -214,7 +182,7 @@ export async function POST(
   ).length;
 
   const newOrderStatus =
-    remainingNormal > 0
+    remaining > 0
       ? "generating"
       : failedTotal > 0
         ? "generation_failed"
@@ -228,24 +196,14 @@ export async function POST(
     })
     .eq("id", orderId);
 
-  console.log(
-    `[generate] Finished batch for ${orderId}. generated_this_run=${generatedThisRun}, failed_this_run=${failedThisRun}, remaining=${remainingNormal}, failed_total=${failedTotal}`
-  );
-
   return NextResponse.json({
     provider: productType === "story_book" ? "gemini" : "fal",
     product_type: productType,
     images: generatedResults,
     generated_this_run: generatedThisRun,
     failed_this_run: failedThisRun,
-    remaining: remainingNormal,
+    remaining,
     failed_total: failedTotal,
     status: newOrderStatus,
-    message:
-      remainingNormal > 0
-        ? `Generated this batch. ${remainingNormal} page(s) still remaining.`
-        : failedTotal > 0
-          ? `Generation finished with ${failedTotal} failed page(s).`
-          : "All pages generated. Ready for review.",
   });
 }
