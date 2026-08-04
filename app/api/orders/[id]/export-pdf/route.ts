@@ -540,6 +540,24 @@ export async function POST(
     const pageHeight = A4_PAGE_HEIGHT;
 
     if (isStoryBook) {
+      const storyFrontCoverPath = path.join(
+        process.cwd(),
+        "public",
+        "covers",
+        "story-front.png"
+      );
+
+      const storyBackCoverPath = path.join(
+        process.cwd(),
+        "public",
+        "covers",
+        "story-back.png"
+      );
+
+      await addCoverImagePage(pdfDoc, storyFrontCoverPath, pageWidth, pageHeight);
+
+      addGracePage(pdfDoc, pageWidth, pageHeight, normalFont, boldFont, order);
+
       for (const image of images) {
         if (!image.generated_url) continue;
 
@@ -556,6 +574,14 @@ export async function POST(
           }
         );
       }
+
+      // Keep Story Book PDFs at an even page count before the back cover.
+      // This gives us: front cover, grace page, story pages, optional blank filler, back cover.
+      if ((pdfDoc.getPageCount() + 1) % 2 !== 0) {
+        addBlankPage(pdfDoc, pageWidth, pageHeight);
+      }
+
+      await addCoverImagePage(pdfDoc, storyBackCoverPath, pageWidth, pageHeight);
     } else {
       const expectedArtworkPages = getExpectedArtworkPages(order, images.length);
 
