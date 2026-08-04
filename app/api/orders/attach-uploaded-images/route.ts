@@ -137,7 +137,17 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     const orderId = body.order_id || body.orderId;
-    const files = Array.isArray(body.files) ? body.files : [];
+
+    const files =
+      Array.isArray(body.files)
+        ? body.files
+        : Array.isArray(body.uploadedFiles)
+          ? body.uploadedFiles
+          : Array.isArray(body.uploaded_files)
+            ? body.uploaded_files
+            : Array.isArray(body.images)
+              ? body.images
+              : [];
 
     if (!orderId || typeof orderId !== "string") {
       return NextResponse.json(
