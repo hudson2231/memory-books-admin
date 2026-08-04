@@ -110,21 +110,67 @@ export default function OrderDetailPage() {
     setMessage("Generating all pages. This can take a little while...");
 
     try {
-      const response = await fetch(`/api/orders/${orderId}/generate`, {
-        method: "POST",
-      });
+      let totalGenerated = 0;
+      let totalFailed = 0;
+      let remaining = 1;
+      let batchNumber = 0;
+      const maxBatches = Math.max(Number(order?.page_count || 20), 20);
 
-      const data = await response.json();
+      while (remaining > 0 && batchNumber < maxBatches) {
+        batchNumber += 1;
 
-      if (!response.ok) {
-        setMessage(data.error || "Generation failed.");
-        return;
+        setMessage(
+          `Generating batch ${batchNumber}... ${totalGenerated} page(s) generated so far.`
+        );
+
+        const response = await fetch(`/api/orders/${orderId}/generate`, {
+          method: "POST",
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setMessage(data.error || "Generation failed.");
+          await loadOrder();
+          return;
+        }
+
+        const generatedThisRun = Number(data.generated_this_run || 0);
+        const failedThisRun = Number(data.failed_this_run || 0);
+
+        totalGenerated += generatedThisRun;
+        totalFailed += failedThisRun;
+        remaining = Number(data.remaining || 0);
+
+        if (failedThisRun > 0) {
+          setMessage(
+            `Generation stopped. ${totalGenerated} page(s) generated, ${totalFailed} failed. Fix failed pages, then try again.`
+          );
+          await loadOrder();
+          return;
+        }
+
+        if (generatedThisRun === 0 && remaining > 0) {
+          setMessage(
+            `Generation stopped because no new pages were generated. ${remaining} page(s) still remaining.`
+          );
+          await loadOrder();
+          return;
+        }
       }
 
-      setMessage(`Generation finished for ${data.images.length} image(s).`);
+      if (remaining > 0) {
+        setMessage(
+          `Generation stopped after ${batchNumber} batch(es). ${remaining} page(s) still remaining. Click Generate All Pages again.`
+        );
+      } else {
+        setMessage(`Generation finished for ${totalGenerated} page(s).`);
+      }
+
       await loadOrder();
     } catch {
       setMessage("Generation failed.");
+      await loadOrder();
     } finally {
       setGenerating(false);
     }
