@@ -112,9 +112,10 @@ export default function OrderDetailPage() {
     try {
       let totalGenerated = 0;
       let totalFailed = 0;
+      let failedTotal = 0;
       let remaining = 1;
       let batchNumber = 0;
-      const maxBatches = Math.max(Number(order?.page_count || 20), 20);
+      const maxBatches = 60;
 
       while (remaining > 0 && batchNumber < maxBatches) {
         batchNumber += 1;
@@ -125,6 +126,7 @@ export default function OrderDetailPage() {
 
         const response = await fetch(`/api/orders/${orderId}/generate`, {
           method: "POST",
+          cache: "no-store",
         });
 
         const data = await response.json();
@@ -140,21 +142,15 @@ export default function OrderDetailPage() {
 
         totalGenerated += generatedThisRun;
         totalFailed += failedThisRun;
+        failedTotal = Number(data.failed_total || totalFailed);
         remaining = Number(data.remaining || 0);
 
-        if (failedThisRun > 0) {
-          setMessage(
-            `Generation stopped. ${totalGenerated} page(s) generated, ${totalFailed} failed. Fix failed pages, then try again.`
-          );
-          await loadOrder();
-          return;
-        }
+        await loadOrder();
 
-        if (generatedThisRun === 0 && remaining > 0) {
+        if (generatedThisRun === 0 && failedThisRun === 0 && remaining > 0) {
           setMessage(
-            `Generation stopped because no new pages were generated. ${remaining} page(s) still remaining.`
+            `Generation stopped because no pages changed. ${remaining} page(s) still remaining.`
           );
-          await loadOrder();
           return;
         }
       }
@@ -163,8 +159,12 @@ export default function OrderDetailPage() {
         setMessage(
           `Generation stopped after ${batchNumber} batch(es). ${remaining} page(s) still remaining. Click Generate All Pages again.`
         );
+      } else if (failedTotal > 0) {
+        setMessage(
+          `Generation finished, but ${failedTotal} page(s) failed. Retry those failed pages or manually replace them before exporting.`
+        );
       } else {
-        setMessage(`Generation finished for ${totalGenerated} page(s).`);
+        setMessage(`Generation finished. ${totalGenerated} page(s) generated.`);
       }
 
       await loadOrder();

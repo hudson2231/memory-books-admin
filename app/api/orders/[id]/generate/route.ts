@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import {
   generateColoringWithFal,
   generateStorybookWithGemini,
-  getAspectRatioForImage,
   getMimeTypeFromUrl,
   getProductType,
   getPromptForOrder,
@@ -14,11 +13,25 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 const MAX_IMAGES_PER_REQUEST = 2;
 
+function isGenerated(image: Record<string, any>) {
+  return Boolean(image.generated_url) || image.status === "generated";
+}
+
+function isFailed(image: Record<string, any>) {
+  return image.status === "failed";
+}
+
+function isNormallyPending(image: Record<string, any>) {
+  return !isGenerated(image) && !isFailed(image);
+}
+
 export async function POST(
   _request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   const { id: orderId } = await context.params;
+
+  console.log(`[generate] Starting order generation: ${orderId}`);
 
   const { data: order, error: orderError } = await supabaseAdmin
     .from("orders")
@@ -27,6 +40,7 @@ export async function POST(
     .single();
 
   if (orderError || !order) {
+    console.error(`[generate] Order not found: ${orderId}`, orderError);
     return NextResponse.json({ error: "Order not found." }, { status: 404 });
   }
 
@@ -46,19 +60,36 @@ export async function POST(
     );
   }
 
-  const { data: images, error: imagesError } = await supabaseAdmin
+  const { data: allImages, error: imagesError } = await supabaseAdmin
     .from("order_images")
     .select("*")
     .eq("order_id", orderId)
-    .or("generated_url.is.null,status.eq.failed,status.eq.uploaded,status.eq.not_generated")
-    .order("page_number", { ascending: true })
-    .limit(MAX_IMAGES_PER_REQUEST);
+    .order("page_number", { ascending: true });
 
   if (imagesError) {
+    console.error(`[generate] Could not load images for order ${orderId}`, imagesError);
     return NextResponse.json({ error: imagesError.message }, { status: 500 });
   }
 
-  if (!images || images.length === 0) {
+  const images = allImages || [];
+
+  const normalPendingImages = images.filter(isNormallyPending);
+  const failedImages = images.filter(
+    (image) => !isGenerated(image) && isFailed(image)
+  );
+
+  /*
+    Important:
+    - Generate normal uploaded/not-generated pages first.
+    - Only retry failed pages if there are no normal pending pages left.
+    This prevents 1 bad page from blocking the remaining 18 pages.
+  */
+  const selectedImages =
+    normalPendingImages.length > 0
+      ? normalPendingImages.slice(0, MAX_IMAGES_PER_REQUEST)
+      : failedImages.slice(0, MAX_IMAGES_PER_REQUEST);
+
+  if (selectedImages.length === 0) {
     return NextResponse.json(
       { error: "No ungenerated pages left for this order." },
       { status: 400 }
@@ -71,8 +102,14 @@ export async function POST(
 
   const generatedResults = [];
 
-  for (const image of images) {
+  for (const image of selectedImages) {
+    const pageNumber = image.page_number;
+
     try {
+      console.log(
+        `[generate] Generating order ${orderId}, page ${pageNumber}, image ${image.id}`
+      );
+
       await supabaseAdmin
         .from("order_images")
         .update({
@@ -121,10 +158,18 @@ export async function POST(
 
       if (updateError) throw new Error(updateError.message);
 
+      console.log(
+        `[generate] Generated order ${orderId}, page ${pageNumber}`
+      );
+
       generatedResults.push(updatedImage);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown generation error.";
+
+      console.error(
+        `[generate] Failed order ${orderId}, page ${pageNumber}: ${message}`
+      );
 
       await supabaseAdmin
         .from("order_images")
@@ -136,27 +181,43 @@ export async function POST(
 
       generatedResults.push({
         id: image.id,
+        page_number: pageNumber,
         status: "failed",
         error_message: message,
       });
     }
   }
 
-  const failedCount = generatedResults.filter(
+  const { data: refreshedImages, error: refreshedError } = await supabaseAdmin
+    .from("order_images")
+    .select("id,page_number,status,generated_url")
+    .eq("order_id", orderId)
+    .order("page_number", { ascending: true });
+
+  if (refreshedError) {
+    return NextResponse.json({ error: refreshedError.message }, { status: 500 });
+  }
+
+  const refreshed = refreshedImages || [];
+
+  const remainingNormal = refreshed.filter(isNormallyPending).length;
+  const failedTotal = refreshed.filter(
+    (image) => !isGenerated(image) && isFailed(image)
+  ).length;
+
+  const generatedThisRun = generatedResults.filter(
+    (result) => result.status === "generated"
+  ).length;
+
+  const failedThisRun = generatedResults.filter(
     (result) => result.status === "failed"
   ).length;
 
-  const { count: remainingCount } = await supabaseAdmin
-    .from("order_images")
-    .select("id", { count: "exact", head: true })
-    .eq("order_id", orderId)
-    .or("generated_url.is.null,status.eq.failed,status.eq.uploaded,status.eq.not_generated");
-
   const newOrderStatus =
-    failedCount > 0
-      ? "generation_failed"
-      : remainingCount && remainingCount > 0
-        ? "generating"
+    remainingNormal > 0
+      ? "generating"
+      : failedTotal > 0
+        ? "generation_failed"
         : "needs_review";
 
   await supabaseAdmin
@@ -167,19 +228,24 @@ export async function POST(
     })
     .eq("id", orderId);
 
+  console.log(
+    `[generate] Finished batch for ${orderId}. generated_this_run=${generatedThisRun}, failed_this_run=${failedThisRun}, remaining=${remainingNormal}, failed_total=${failedTotal}`
+  );
+
   return NextResponse.json({
     provider: productType === "story_book" ? "gemini" : "fal",
     product_type: productType,
     images: generatedResults,
-    generated_this_run: generatedResults.filter(
-      (result) => result.status === "generated"
-    ).length,
-    failed_this_run: failedCount,
-    remaining: remainingCount || 0,
+    generated_this_run: generatedThisRun,
+    failed_this_run: failedThisRun,
+    remaining: remainingNormal,
+    failed_total: failedTotal,
     status: newOrderStatus,
     message:
-      remainingCount && remainingCount > 0
-        ? `Generated this batch. ${remainingCount} page(s) still remaining.`
-        : "All pages generated. Ready for review.",
+      remainingNormal > 0
+        ? `Generated this batch. ${remainingNormal} page(s) still remaining.`
+        : failedTotal > 0
+          ? `Generation finished with ${failedTotal} failed page(s).`
+          : "All pages generated. Ready for review.",
   });
 }

@@ -233,6 +233,17 @@ export async function generateStorybookWithGemini(params: {
   };
 }
 
+async function uploadUrlToFalStorage(url: string) {
+  const downloaded = await downloadUrlToBuffer(url);
+  const contentType = downloaded.contentType || "image/jpeg";
+
+  const blob = new Blob([new Uint8Array(downloaded.buffer)], {
+    type: contentType,
+  });
+
+  return await fal.storage.upload(blob);
+}
+
 export async function generateColoringWithFal(params: {
   promptText: string;
   originalUrl: string;
@@ -249,18 +260,47 @@ export async function generateColoringWithFal(params: {
     credentials: apiKey,
   });
 
-  const imageUrls = params.previousGeneratedUrl
-    ? [params.originalUrl, params.previousGeneratedUrl]
-    : [params.originalUrl];
+  let falOriginalUrl = params.originalUrl;
+  let falPreviousGeneratedUrl = params.previousGeneratedUrl || null;
 
-  const result: any = await fal.subscribe(FAL_COLORING_MODEL, {
-    input: {
-      prompt: params.promptText,
-      image_urls: imageUrls,
-      aspect_ratio: params.aspectRatio || "3:4",
-    },
-    logs: true,
-  });
+  try {
+    falOriginalUrl = await uploadUrlToFalStorage(params.originalUrl);
+
+    if (params.previousGeneratedUrl) {
+      falPreviousGeneratedUrl = await uploadUrlToFalStorage(
+        params.previousGeneratedUrl
+      );
+    }
+  } catch (storageError) {
+    const message =
+      storageError instanceof Error
+        ? storageError.message
+        : "Unknown Fal storage upload error.";
+
+    throw new Error(`Fal could not prepare the source image. ${message}`);
+  }
+
+  const imageUrls = falPreviousGeneratedUrl
+    ? [falOriginalUrl, falPreviousGeneratedUrl]
+    : [falOriginalUrl];
+
+  let result: any;
+
+  try {
+    result = await fal.subscribe(FAL_COLORING_MODEL, {
+      input: {
+        prompt: params.promptText,
+        image_urls: imageUrls,
+        aspect_ratio: params.aspectRatio || "3:4",
+      },
+      logs: true,
+    });
+  } catch (falError) {
+    const message =
+      falError instanceof Error ? falError.message : "Unknown Fal error.";
+
+    throw new Error(`Fal generation failed. ${message}`);
+  }
 
   const outputUrl = result?.data?.images?.[0]?.url || result?.images?.[0]?.url;
 
