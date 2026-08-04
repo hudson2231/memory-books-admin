@@ -184,9 +184,24 @@ async function normaliseOriginalToJpg(params: {
     .filter(Boolean)
     .join("/");
 
+  if (
+    normalisedBuffer.length < 3 ||
+    normalisedBuffer[0] !== 0xff ||
+    normalisedBuffer[1] !== 0xd8 ||
+    normalisedBuffer[2] !== 0xff
+  ) {
+    throw new Error(
+      `Normalised JPG for ${originalFilename} was not valid JPG data before upload.`
+    );
+  }
+
+  const normalisedBlob = new Blob([new Uint8Array(normalisedBuffer)], {
+    type: "image/jpeg",
+  });
+
   const { error: uploadError } = await supabaseAdmin.storage
     .from("originals")
-    .upload(normalisedPath, normalisedBuffer, {
+    .upload(normalisedPath, normalisedBlob, {
       contentType: "image/jpeg",
       upsert: true,
     });
