@@ -308,7 +308,7 @@ function addGracePage(
   } else if (!recipient && !fromName) {
     drawCenteredText(
       page,
-      "A personalised colouring book made especially for you.",
+      ((order.product_type === "story_book") ? "A personalised story book made especially for you." : "A personalised colouring book made especially for you."),
       normalFont,
       17,
       pageHeight - 470,
@@ -319,7 +319,7 @@ function addGracePage(
 
   drawCenteredText(
     page,
-    "COLOUR, GIFT, AND KEEP FOREVER.",
+    ((order.product_type === "story_book") ? "READ, GIFT, AND KEEP FOREVER." : "COLOUR, GIFT, AND KEEP FOREVER."),
     normalFont,
     9,
     86,
