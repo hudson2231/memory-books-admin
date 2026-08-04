@@ -13,6 +13,16 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 const MAX_IMAGES_PER_REQUEST = 2;
 
+function getGenerationInputUrl(image: Record<string, any>) {
+  return (
+    image.preview_url ||
+    image.normalised_url ||
+    image.normalized_url ||
+    image.converted_url ||
+    image.original_url
+  );
+}
+
 function isGenerated(image: Record<string, any>) {
   return Boolean(image.generated_url) || image.status === "generated";
 }
@@ -102,12 +112,12 @@ export async function POST(
         productType === "story_book"
           ? await generateStorybookWithGemini({
               promptText,
-              originalUrl: image.original_url,
-              mimeType: image.mime_type || getMimeTypeFromUrl(image.original_url),
+              originalUrl: getGenerationInputUrl(image),
+              mimeType: image.mime_type || getMimeTypeFromUrl(getGenerationInputUrl(image)),
             })
           : await generateColoringWithFal({
               promptText,
-              originalUrl: image.original_url,
+              originalUrl: getGenerationInputUrl(image),
               aspectRatio: "3:4",
             });
 
