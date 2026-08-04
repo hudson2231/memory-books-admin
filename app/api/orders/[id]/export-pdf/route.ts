@@ -379,8 +379,11 @@ async function addCoverImagePage(
 }
 
 
-async function normaliseColouringPageToA4Png(originalBuffer: Buffer) {
-  return sharp(originalBuffer)
+async function normaliseColouringPageToA4Jpg(originalBuffer: Buffer) {
+  return sharp(originalBuffer, {
+    failOn: "none",
+    animated: false,
+  })
     .rotate()
     .flatten({ background: "#ffffff" })
     .resize({
@@ -389,7 +392,10 @@ async function normaliseColouringPageToA4Png(originalBuffer: Buffer) {
       fit: "cover",
       position: "centre",
     })
-    .png()
+    .jpeg({
+      quality: 88,
+      mozjpeg: true,
+    })
     .toBuffer();
 }
 
@@ -417,8 +423,8 @@ async function addImagePage(
   const pageKind = options?.pageKind || "colouring";
 
   if (pageKind === "colouring") {
-    const a4PngBuffer = await normaliseColouringPageToA4Png(originalBuffer);
-    const embeddedImage = await pdfDoc.embedPng(a4PngBuffer);
+    const a4JpgBuffer = await normaliseColouringPageToA4Jpg(originalBuffer);
+    const embeddedImage = await pdfDoc.embedJpg(a4JpgBuffer);
     const page = pdfDoc.addPage([pageWidth, pageHeight]);
 
     page.drawImage(embeddedImage, {
@@ -617,16 +623,25 @@ export async function POST(
       for (const [index, image] of colouringImages.entries()) {
         if (!image.generated_url) continue;
 
-        await addImagePage(
-          pdfDoc,
-          image.generated_url,
-          image.page_number,
-          pageWidth,
-          pageHeight,
-          {
-            pageKind: "colouring",
-          }
-        );
+        try {
+          await addImagePage(
+            pdfDoc,
+            image.generated_url,
+            image.page_number,
+            pageWidth,
+            pageHeight,
+            {
+              pageKind: "colouring",
+            }
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Unknown PDF image error.";
+
+          throw new Error(
+            `PDF export failed on colouring page ${image.page_number}. ${message}`
+          );
+        }
 
         // Blank reverse side after every colouring page except the final artwork page.
         // The grace page uses the inside-front page, so total Gelato page count stays the same.
