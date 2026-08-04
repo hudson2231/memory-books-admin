@@ -59,12 +59,102 @@ function getFolderFromPath(storagePath: string) {
   return parts.join("/");
 }
 
+function isHeicLike(params: {
+  storagePath: string;
+  originalFilename: string;
+  mimeType: string;
+}) {
+  const combined = `${params.storagePath} ${params.originalFilename} ${params.mimeType}`.toLowerCase();
+
+  return (
+    combined.includes(".heic") ||
+    combined.includes(".heif") ||
+    combined.includes("image/heic") ||
+    combined.includes("image/heif")
+  );
+}
+
+async function convertHeicToJpegBuffer(inputBuffer: Buffer) {
+  const heicConvertModule = await import("heic-convert");
+  const heicConvert = heicConvertModule.default || heicConvertModule;
+
+  const output = await heicConvert({
+    buffer: inputBuffer,
+    format: "JPEG",
+    quality: 0.95,
+  });
+
+  return Buffer.from(output);
+}
+
+async function convertToPrintSafeJpg(params: {
+  inputBuffer: Buffer;
+  storagePath: string;
+  originalFilename: string;
+  mimeType: string;
+}) {
+  const { inputBuffer, storagePath, originalFilename, mimeType } = params;
+
+  const heicLike = isHeicLike({
+    storagePath,
+    originalFilename,
+    mimeType,
+  });
+
+  if (heicLike) {
+    try {
+      const heicJpegBuffer = await convertHeicToJpegBuffer(inputBuffer);
+
+      return await sharp(heicJpegBuffer, {
+        failOn: "none",
+        animated: false,
+      })
+        .rotate()
+        .flatten({ background: "#ffffff" })
+        .jpeg({
+          quality: 95,
+          mozjpeg: true,
+        })
+        .toBuffer();
+    } catch (heicError) {
+      const message =
+        heicError instanceof Error ? heicError.message : "Unknown HEIC error";
+
+      throw new Error(
+        `Could not convert HEIC/HEIF file ${originalFilename} into a print-safe JPG. ${message}`
+      );
+    }
+  }
+
+  try {
+    return await sharp(inputBuffer, {
+      failOn: "none",
+      animated: false,
+    })
+      .rotate()
+      .flatten({ background: "#ffffff" })
+      .jpeg({
+        quality: 95,
+        mozjpeg: true,
+      })
+      .toBuffer();
+  } catch (sharpError) {
+    const message =
+      sharpError instanceof Error ? sharpError.message : "Unknown image error";
+
+    throw new Error(
+      `Could not convert ${originalFilename} into a print-safe JPG. ${message}`
+    );
+  }
+}
+
 async function normaliseOriginalToJpg(params: {
   storagePath: string;
   originalFilename: string;
+  originalMimeType: string;
   pageNumber: number;
 }) {
-  const { storagePath, originalFilename, pageNumber } = params;
+  const { storagePath, originalFilename, originalMimeType, pageNumber } = params;
 
   const { data: downloadedFile, error: downloadError } =
     await supabaseAdmin.storage.from("originals").download(storagePath);
@@ -77,27 +167,12 @@ async function normaliseOriginalToJpg(params: {
 
   const inputBuffer = Buffer.from(await downloadedFile.arrayBuffer());
 
-  let normalisedBuffer: Buffer;
-
-  try {
-    normalisedBuffer = await sharp(inputBuffer, {
-      failOn: "none",
-      animated: false,
-    })
-      .rotate()
-      .flatten({ background: "#ffffff" })
-      .jpeg({
-        quality: 95,
-        mozjpeg: true,
-      })
-      .toBuffer();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-
-    throw new Error(
-      `Could not convert ${originalFilename} into a print-safe JPG. ${message}`
-    );
-  }
+  const normalisedBuffer = await convertToPrintSafeJpg({
+    inputBuffer,
+    storagePath,
+    originalFilename,
+    mimeType: originalMimeType,
+  });
 
   const folder = getFolderFromPath(storagePath);
   const safeName = safePathPart(originalFilename.replace(/\.[^.]+$/, ""));
@@ -193,6 +268,7 @@ export async function POST(request: Request) {
       const normalised = await normaliseOriginalToJpg({
         storagePath,
         originalFilename,
+        originalMimeType,
         pageNumber,
       });
 
