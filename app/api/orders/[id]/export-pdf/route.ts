@@ -8,8 +8,8 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 const A4_PAGE_WIDTH = 595.28;
 const A4_PAGE_HEIGHT = 841.89;
 
-const A4_EXPORT_WIDTH_PX = 2480;
-const A4_EXPORT_HEIGHT_PX = 3508;
+const A4_EXPORT_WIDTH_PX = 1654;
+const A4_EXPORT_HEIGHT_PX = 2339;
 
 function slugify(value: string) {
   return value
@@ -393,12 +393,11 @@ async function normaliseColouringPageToA4Jpg(originalBuffer: Buffer) {
       position: "centre",
     })
     .jpeg({
-      quality: 82,
+      quality: 78,
       mozjpeg: true,
     })
     .toBuffer();
 
-  // JPEG files must start with FF D8. If not, pdf-lib will throw "SOI not found in JPEG".
   if (output[0] !== 0xff || output[1] !== 0xd8) {
     throw new Error("Colouring page conversion did not produce a valid JPEG.");
   }
