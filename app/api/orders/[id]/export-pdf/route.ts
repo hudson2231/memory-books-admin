@@ -5,9 +5,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const EXPORT_VERSION = "pdf-export-clean-jpeg-v3";
+
 const A4_PAGE_WIDTH = 595.28;
 const A4_PAGE_HEIGHT = 841.89;
 
+// 200 DPI A4. Big enough for print line art, small enough for 20/32/40 page exports.
 const A4_EXPORT_WIDTH_PX = 1654;
 const A4_EXPORT_HEIGHT_PX = 2339;
 
@@ -22,6 +28,33 @@ function slugify(value: string) {
 
 function getProductType(order: Record<string, any>) {
   return order.product_type === "story_book" ? "story_book" : "colouring_book";
+}
+
+function getExpectedArtworkPages(order: Record<string, any>, fallback: number) {
+  const candidates = [
+    order.page_count,
+    order.pages,
+    order.product_title,
+    order.variant_title,
+    order.title,
+  ];
+
+  for (const value of candidates) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return value;
+    }
+
+    if (typeof value === "string") {
+      const match = value.match(/(\d+)\s*(page|pages)/i);
+      if (match?.[1]) return Number(match[1]);
+    }
+  }
+
+  return fallback;
+}
+
+function getGelatoPageCountForColouringBook(artworkPages: number) {
+  return artworkPages * 2 + 2;
 }
 
 function cleanCaption(value: unknown) {
@@ -52,33 +85,6 @@ function wrapText(text: string, maxCharsPerLine: number) {
 
   if (current) lines.push(current);
   return lines.slice(0, 3);
-}
-
-function getExpectedArtworkPages(order: Record<string, any>, fallback: number) {
-  const candidates = [
-    order.page_count,
-    order.pages,
-    order.product_title,
-    order.variant_title,
-    order.title,
-  ];
-
-  for (const value of candidates) {
-    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-      return value;
-    }
-
-    if (typeof value === "string") {
-      const match = value.match(/(\d+)\s*(page|pages)/i);
-      if (match?.[1]) return Number(match[1]);
-    }
-  }
-
-  return fallback;
-}
-
-function getGelatoPageCountForColouringBook(artworkPages: number) {
-  return artworkPages * 2 + 2;
 }
 
 function cleanGraceText(value: unknown, maxLength: number) {
@@ -133,6 +139,10 @@ function drawCenteredText(
   });
 }
 
+function addBlankPage(pdfDoc: PDFDocument, pageWidth: number, pageHeight: number) {
+  pdfDoc.addPage([pageWidth, pageHeight]);
+}
+
 function addGracePage(
   pdfDoc: PDFDocument,
   pageWidth: number,
@@ -153,6 +163,7 @@ function addGracePage(
   const recipient = cleanGraceText(order.grace_recipient, 80);
   const fromName = cleanGraceText(order.grace_from, 80);
   const message = cleanGraceText(order.grace_message, 240);
+  const isStoryBook = order.product_type === "story_book";
 
   page.drawRectangle({
     x: 0,
@@ -182,15 +193,7 @@ function addGracePage(
     borderWidth: 0.35,
   });
 
-  drawCenteredText(
-    page,
-    "Memory Books",
-    normalFont,
-    23,
-    pageHeight - 118,
-    pageWidth,
-    gold
-  );
+  drawCenteredText(page, "Memory Books", normalFont, 23, pageHeight - 118, pageWidth, gold);
 
   page.drawLine({
     start: { x: pageWidth / 2 - 118, y: pageHeight - 134 },
@@ -221,6 +224,7 @@ function addGracePage(
     );
 
     const recipientSize = recipient.length > 16 ? 42 : 50;
+
     drawCenteredText(
       page,
       recipient,
@@ -243,7 +247,7 @@ function addGracePage(
 
     drawCenteredText(
       page,
-      order.product_type === "story_book" ? "Made into a Story Book" : "Made to Colour",
+      isStoryBook ? "Made into a Story Book" : "Made to Colour",
       boldFont,
       45,
       pageHeight - 340,
@@ -284,13 +288,7 @@ function addGracePage(
     const messageFontSize = 18;
     const lineHeight = 27;
     const maxTextWidth = pageWidth - 170;
-    const lines = wrapGraceTextByWidth(
-      message,
-      normalFont,
-      messageFontSize,
-      maxTextWidth
-    );
-
+    const lines = wrapGraceTextByWidth(message, normalFont, messageFontSize, maxTextWidth);
     const totalHeight = (lines.length - 1) * lineHeight;
     const startY = pageHeight - 510 + totalHeight / 2;
 
@@ -308,7 +306,9 @@ function addGracePage(
   } else if (!recipient && !fromName) {
     drawCenteredText(
       page,
-      ((order.product_type === "story_book") ? "A personalised story book made especially for you." : "A personalised colouring book made especially for you."),
+      isStoryBook
+        ? "A personalised story book made especially for you."
+        : "A personalised colouring book made especially for you.",
       normalFont,
       17,
       pageHeight - 470,
@@ -319,7 +319,7 @@ function addGracePage(
 
   drawCenteredText(
     page,
-    ((order.product_type === "story_book") ? "READ, GIFT, AND KEEP FOREVER." : "COLOUR, GIFT, AND KEEP FOREVER."),
+    isStoryBook ? "READ, GIFT, AND KEEP FOREVER." : "COLOUR, GIFT, AND KEEP FOREVER.",
     normalFont,
     9,
     86,
@@ -327,11 +327,6 @@ function addGracePage(
     softGreen,
     { characterSpacing: 2.2 }
   );
-}
-
-
-function addBlankPage(pdfDoc: PDFDocument, pageWidth: number, pageHeight: number) {
-  pdfDoc.addPage([pageWidth, pageHeight]);
 }
 
 function getCoverDrawBox(
@@ -360,7 +355,10 @@ async function addCoverImagePage(
 ) {
   const sourceBuffer = await fs.readFile(imagePath);
 
-  const pngBuffer = await sharp(sourceBuffer)
+  const pngBuffer = await sharp(sourceBuffer, {
+    failOn: "none",
+    animated: false,
+  })
     .flatten({ background: "#fff7e8" })
     .png()
     .toBuffer();
@@ -378,9 +376,34 @@ async function addCoverImagePage(
   page.drawImage(embeddedImage, box);
 }
 
+async function downloadImageBuffer(imageUrl: string, pageNumber: number) {
+  const response = await fetch(imageUrl, {
+    cache: "no-store",
+  });
 
-async function normaliseColouringPageToA4Jpg(originalBuffer: Buffer) {
-  const output = await sharp(originalBuffer, {
+  if (!response.ok) {
+    throw new Error(
+      `Failed to download generated image for page ${pageNumber}. HTTP ${response.status}`
+    );
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  if (buffer.length < 20) {
+    throw new Error(`Generated image for page ${pageNumber} downloaded as an empty file.`);
+  }
+
+  if (contentType.includes("text/html")) {
+    throw new Error(`Generated image for page ${pageNumber} downloaded as HTML, not an image.`);
+  }
+
+  return buffer;
+}
+
+async function makeColouringPageJpeg(inputBuffer: Buffer, pageNumber: number) {
+  const output = await sharp(inputBuffer, {
     failOn: "none",
     animated: false,
   })
@@ -394,66 +417,75 @@ async function normaliseColouringPageToA4Jpg(originalBuffer: Buffer) {
     })
     .jpeg({
       quality: 78,
-      mozjpeg: true,
+      progressive: false,
+      chromaSubsampling: "4:4:4",
     })
     .toBuffer();
 
-  if (output[0] !== 0xff || output[1] !== 0xd8) {
-    throw new Error("Colouring page conversion did not produce a valid JPEG.");
+  const outputBuffer = Buffer.from(output);
+
+  if (outputBuffer[0] !== 0xff || outputBuffer[1] !== 0xd8) {
+    throw new Error(
+      `Sharp did not output a valid JPEG for page ${pageNumber}. First bytes: ${outputBuffer
+        .subarray(0, 8)
+        .toString("hex")}`
+    );
   }
 
-  return output;
+  return outputBuffer;
 }
 
-async function addImagePage(
+async function makeStoryPagePng(inputBuffer: Buffer) {
+  return await sharp(inputBuffer, {
+    failOn: "none",
+    animated: false,
+  })
+    .rotate()
+    .flatten({ background: "#ffffff" })
+    .png()
+    .toBuffer();
+}
+
+async function addColouringImagePage(
+  pdfDoc: PDFDocument,
+  imageUrl: string,
+  pageNumber: number,
+  pageWidth: number,
+  pageHeight: number
+) {
+  const downloaded = await downloadImageBuffer(imageUrl, pageNumber);
+  const jpegBuffer = await makeColouringPageJpeg(downloaded, pageNumber);
+
+  const embeddedImage = await pdfDoc.embedJpg(jpegBuffer);
+  const page = pdfDoc.addPage([pageWidth, pageHeight]);
+
+  page.drawImage(embeddedImage, {
+    x: 0,
+    y: 0,
+    width: pageWidth,
+    height: pageHeight,
+  });
+}
+
+async function addStoryImagePage(
   pdfDoc: PDFDocument,
   imageUrl: string,
   pageNumber: number,
   pageWidth: number,
   pageHeight: number,
-  options?: {
+  options: {
     caption?: string;
-    captionFont?: any;
-    pageKind?: "colouring" | "story";
+    captionFont: any;
   }
 ) {
-  const response = await fetch(imageUrl);
-
-  if (!response.ok) {
-    throw new Error(`Failed to download generated page ${pageNumber}.`);
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  const originalBuffer = Buffer.from(arrayBuffer);
-
-  const pageKind = options?.pageKind || "colouring";
-
-  if (pageKind === "colouring") {
-    const a4JpgBuffer = await normaliseColouringPageToA4Jpg(originalBuffer);
-    const embeddedImage = await pdfDoc.embedJpg(a4JpgBuffer);
-    const page = pdfDoc.addPage([pageWidth, pageHeight]);
-
-    page.drawImage(embeddedImage, {
-      x: 0,
-      y: 0,
-      width: pageWidth,
-      height: pageHeight,
-    });
-
-    return;
-  }
-
-  const cleanPngBuffer = await sharp(originalBuffer)
-    .rotate()
-    .flatten({ background: "#ffffff" })
-    .png()
-    .toBuffer();
+  const downloaded = await downloadImageBuffer(imageUrl, pageNumber);
+  const cleanPngBuffer = await makeStoryPagePng(downloaded);
 
   const embeddedImage = await pdfDoc.embedPng(cleanPngBuffer);
   const page = pdfDoc.addPage([pageWidth, pageHeight]);
 
   const margin = 36;
-  const caption = options?.caption || "";
+  const caption = options.caption || "";
   const captionAreaHeight = caption ? 90 : 0;
   const imageAreaWidth = pageWidth - margin * 2;
   const imageAreaHeight = pageHeight - margin * 2 - captionAreaHeight;
@@ -478,7 +510,7 @@ async function addImagePage(
     height: drawHeight,
   });
 
-  if (caption && options?.captionFont) {
+  if (caption && options.captionFont) {
     const lines = wrapText(caption, 54);
     const fontSize = 16;
     const lineHeight = 21;
@@ -538,6 +570,14 @@ export async function POST(
     );
   }
 
+  await supabaseAdmin
+    .from("orders")
+    .update({
+      pdf_status: "exporting",
+      pdf_url: null,
+    })
+    .eq("id", orderId);
+
   try {
     const pdfDoc = await PDFDocument.create();
 
@@ -552,43 +592,28 @@ export async function POST(
     const pageHeight = A4_PAGE_HEIGHT;
 
     if (isStoryBook) {
-      const storyFrontCoverPath = path.join(
-        process.cwd(),
-        "public",
-        "covers",
-        "story-front.png"
-      );
-
-      const storyBackCoverPath = path.join(
-        process.cwd(),
-        "public",
-        "covers",
-        "story-back.png"
-      );
+      const storyFrontCoverPath = path.join(process.cwd(), "public", "covers", "story-front.png");
+      const storyBackCoverPath = path.join(process.cwd(), "public", "covers", "story-back.png");
 
       await addCoverImagePage(pdfDoc, storyFrontCoverPath, pageWidth, pageHeight);
-
       addGracePage(pdfDoc, pageWidth, pageHeight, normalFont, boldFont, order);
 
       for (const image of images) {
         if (!image.generated_url) continue;
 
-        await addImagePage(
+        await addStoryImagePage(
           pdfDoc,
           image.generated_url,
           image.page_number,
           pageWidth,
           pageHeight,
           {
-            pageKind: "story",
             caption: cleanCaption(image.caption_text),
             captionFont,
           }
         );
       }
 
-      // Keep Story Book PDFs at an even page count before the back cover.
-      // This gives us: front cover, grace page, story pages, optional blank filler, back cover.
       if ((pdfDoc.getPageCount() + 1) % 2 !== 0) {
         addBlankPage(pdfDoc, pageWidth, pageHeight);
       }
@@ -606,22 +631,10 @@ export async function POST(
         );
       }
 
-      const frontCoverPath = path.join(
-        process.cwd(),
-        "public",
-        "covers",
-        "colouring-front.png"
-      );
-
-      const backCoverPath = path.join(
-        process.cwd(),
-        "public",
-        "covers",
-        "colouring-back.png"
-      );
+      const frontCoverPath = path.join(process.cwd(), "public", "covers", "colouring-front.png");
+      const backCoverPath = path.join(process.cwd(), "public", "covers", "colouring-back.png");
 
       await addCoverImagePage(pdfDoc, frontCoverPath, pageWidth, pageHeight);
-
       addGracePage(pdfDoc, pageWidth, pageHeight, normalFont, boldFont, order);
 
       const colouringImages = images.slice(0, expectedArtworkPages);
@@ -630,27 +643,22 @@ export async function POST(
         if (!image.generated_url) continue;
 
         try {
-          await addImagePage(
+          await addColouringImagePage(
             pdfDoc,
             image.generated_url,
             image.page_number,
             pageWidth,
-            pageHeight,
-            {
-              pageKind: "colouring",
-            }
+            pageHeight
           );
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Unknown PDF image error.";
 
           throw new Error(
-            `PDF export failed on colouring page ${image.page_number}. ${message}`
+            `${EXPORT_VERSION}: PDF export failed on colouring page ${image.page_number}. ${message}`
           );
         }
 
-        // Blank reverse side after every colouring page except the final artwork page.
-        // The grace page uses the inside-front page, so total Gelato page count stays the same.
         if (index < colouringImages.length - 1) {
           addBlankPage(pdfDoc, pageWidth, pageHeight);
         }
@@ -658,12 +666,11 @@ export async function POST(
 
       await addCoverImagePage(pdfDoc, backCoverPath, pageWidth, pageHeight);
 
-      const targetGelatoPageCount =
-        getGelatoPageCountForColouringBook(expectedArtworkPages);
+      const targetGelatoPageCount = getGelatoPageCountForColouringBook(expectedArtworkPages);
 
       if (pdfDoc.getPageCount() !== targetGelatoPageCount) {
         throw new Error(
-          `PDF page count mismatch. Expected ${targetGelatoPageCount}, got ${pdfDoc.getPageCount()}.`
+          `${EXPORT_VERSION}: PDF page count mismatch. Expected ${targetGelatoPageCount}, got ${pdfDoc.getPageCount()}.`
         );
       }
     }
@@ -683,7 +690,7 @@ export async function POST(
       });
 
     if (uploadError) {
-      throw new Error(uploadError.message);
+      throw new Error(`${EXPORT_VERSION}: PDF upload failed. ${uploadError.message}`);
     }
 
     const { data: publicUrlData } = supabaseAdmin.storage
@@ -706,19 +713,20 @@ export async function POST(
       .single();
 
     if (updateError) {
-      throw new Error(updateError.message);
+      throw new Error(`${EXPORT_VERSION}: Order update failed. ${updateError.message}`);
     }
 
     return NextResponse.json({
+      ok: true,
+      version: EXPORT_VERSION,
       order: updatedOrder,
       pdf_url: pdfUrl,
       exported_pages: exportedPages,
-      gelato_page_count:
-        productType === "colouring_book" ? exportedPages : null,
+      gelato_page_count: productType === "colouring_book" ? exportedPages : null,
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Failed to export PDF.";
+      error instanceof Error ? error.message : `${EXPORT_VERSION}: Failed to export PDF.`;
 
     console.error("PDF export failed:", message);
 
@@ -729,6 +737,13 @@ export async function POST(
       })
       .eq("id", orderId);
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      {
+        ok: false,
+        version: EXPORT_VERSION,
+        error: message,
+      },
+      { status: 500 }
+    );
   }
 }
