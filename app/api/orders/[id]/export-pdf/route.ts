@@ -380,7 +380,7 @@ async function addCoverImagePage(
 
 
 async function normaliseColouringPageToA4Jpg(originalBuffer: Buffer) {
-  return sharp(originalBuffer, {
+  const output = await sharp(originalBuffer, {
     failOn: "none",
     animated: false,
   })
@@ -393,10 +393,17 @@ async function normaliseColouringPageToA4Jpg(originalBuffer: Buffer) {
       position: "centre",
     })
     .jpeg({
-      quality: 88,
+      quality: 82,
       mozjpeg: true,
     })
     .toBuffer();
+
+  // JPEG files must start with FF D8. If not, pdf-lib will throw "SOI not found in JPEG".
+  if (output[0] !== 0xff || output[1] !== 0xd8) {
+    throw new Error("Colouring page conversion did not produce a valid JPEG.");
+  }
+
+  return output;
 }
 
 async function addImagePage(
