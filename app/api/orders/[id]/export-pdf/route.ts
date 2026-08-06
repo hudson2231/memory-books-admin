@@ -151,11 +151,11 @@ function addGracePage(
 ) {
   const page = pdfDoc.addPage([pageWidth, pageHeight]);
 
-  const background = rgb(0.995, 0.988, 0.965);
+  const white = rgb(1, 1, 1);
   const gold = rgb(0.58, 0.43, 0.19);
-  const paleGold = rgb(0.78, 0.65, 0.42);
-  const darkGreen = rgb(0.04, 0.18, 0.11);
-  const charcoal = rgb(0.22, 0.2, 0.18);
+  const paleGold = rgb(0.76, 0.64, 0.42);
+  const darkGreen = rgb(0.035, 0.16, 0.095);
+  const charcoal = rgb(0.24, 0.22, 0.2);
 
   const recipient = cleanGraceText(order.grace_recipient, 80);
   const fromName = cleanGraceText(order.grace_from, 80);
@@ -165,12 +165,12 @@ function addGracePage(
     y: 0,
     width: pageWidth,
     height: pageHeight,
-    color: background,
+    color: white,
   });
 
-  // Outer elegant border
+  // Clean double border, close to the reference.
   const outer = 22;
-  const inner = 34;
+  const inner = 31;
 
   page.drawRectangle({
     x: outer,
@@ -178,7 +178,7 @@ function addGracePage(
     width: pageWidth - outer * 2,
     height: pageHeight - outer * 2,
     borderColor: gold,
-    borderWidth: 0.85,
+    borderWidth: 0.65,
   });
 
   page.drawRectangle({
@@ -190,73 +190,41 @@ function addGracePage(
     borderWidth: 0.35,
   });
 
-  // Corner detailing — simple art-deco style, no weird unicode glyphs.
-  const c = 52;
-  const r = 18;
+  // Minimal corner curves/detail using simple short lines only.
+  const corner = 42;
 
-  // top left
-  page.drawLine({ start: { x: outer, y: pageHeight - c }, end: { x: outer + r, y: pageHeight - c }, thickness: 0.75, color: gold });
-  page.drawLine({ start: { x: outer + c, y: pageHeight - outer }, end: { x: outer + c, y: pageHeight - outer - r }, thickness: 0.75, color: gold });
-  page.drawLine({ start: { x: outer + 10, y: pageHeight - 34 }, end: { x: outer + 25, y: pageHeight - 49 }, thickness: 0.45, color: paleGold });
+  // top-left
+  page.drawLine({ start: { x: outer, y: pageHeight - corner }, end: { x: outer + corner, y: pageHeight - corner }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: outer + corner, y: pageHeight - outer }, end: { x: outer + corner, y: pageHeight - corner }, thickness: 0.45, color: paleGold });
 
-  // top right
-  page.drawLine({ start: { x: pageWidth - outer, y: pageHeight - c }, end: { x: pageWidth - outer - r, y: pageHeight - c }, thickness: 0.75, color: gold });
-  page.drawLine({ start: { x: pageWidth - outer - c, y: pageHeight - outer }, end: { x: pageWidth - outer - c, y: pageHeight - outer - r }, thickness: 0.75, color: gold });
-  page.drawLine({ start: { x: pageWidth - outer - 10, y: pageHeight - 34 }, end: { x: pageWidth - outer - 25, y: pageHeight - 49 }, thickness: 0.45, color: paleGold });
+  // top-right
+  page.drawLine({ start: { x: pageWidth - outer, y: pageHeight - corner }, end: { x: pageWidth - outer - corner, y: pageHeight - corner }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: pageWidth - outer - corner, y: pageHeight - outer }, end: { x: pageWidth - outer - corner, y: pageHeight - corner }, thickness: 0.45, color: paleGold });
 
-  // bottom left
-  page.drawLine({ start: { x: outer, y: c }, end: { x: outer + r, y: c }, thickness: 0.75, color: gold });
-  page.drawLine({ start: { x: outer + c, y: outer }, end: { x: outer + c, y: outer + r }, thickness: 0.75, color: gold });
-  page.drawLine({ start: { x: outer + 10, y: 34 }, end: { x: outer + 25, y: 49 }, thickness: 0.45, color: paleGold });
+  // bottom-left
+  page.drawLine({ start: { x: outer, y: corner }, end: { x: outer + corner, y: corner }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: outer + corner, y: outer }, end: { x: outer + corner, y: corner }, thickness: 0.45, color: paleGold });
 
-  // bottom right
-  page.drawLine({ start: { x: pageWidth - outer, y: c }, end: { x: pageWidth - outer - r, y: c }, thickness: 0.75, color: gold });
-  page.drawLine({ start: { x: pageWidth - outer - c, y: outer }, end: { x: pageWidth - outer - c, y: outer + r }, thickness: 0.75, color: gold });
-  page.drawLine({ start: { x: pageWidth - outer - 10, y: 34 }, end: { x: pageWidth - outer - 25, y: 49 }, thickness: 0.45, color: paleGold });
+  // bottom-right
+  page.drawLine({ start: { x: pageWidth - outer, y: corner }, end: { x: pageWidth - outer - corner, y: corner }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: pageWidth - outer - corner, y: outer }, end: { x: pageWidth - outer - corner, y: corner }, thickness: 0.45, color: paleGold });
 
-  // Top branding
+  // Brand
   drawCenteredText(
     page,
     "M E M O R Y   B O O K S",
     normalFont,
-    17,
-    pageHeight - 120,
+    15,
+    pageHeight - 122,
     pageWidth,
     gold
   );
 
-  page.drawLine({
-    start: { x: pageWidth / 2 - 55, y: pageHeight - 140 },
-    end: { x: pageWidth / 2 - 10, y: pageHeight - 140 },
-    thickness: 0.65,
-    color: paleGold,
-  });
+  // Tiny ornament under brand
+  drawCenteredText(page, "◆", normalFont, 8, pageHeight - 145, pageWidth, gold);
 
-  page.drawLine({
-    start: { x: pageWidth / 2 + 10, y: pageHeight - 140 },
-    end: { x: pageWidth / 2 + 55, y: pageHeight - 140 },
-    thickness: 0.65,
-    color: paleGold,
-  });
-
-  drawCenteredText(page, "-", normalFont, 13, pageHeight - 146, pageWidth, gold);
-
-  // Small centre ornament
-  page.drawLine({
-    start: { x: pageWidth / 2 - 45, y: pageHeight - 238 },
-    end: { x: pageWidth / 2 - 18, y: pageHeight - 238 },
-    thickness: 0.5,
-    color: paleGold,
-  });
-
-  page.drawLine({
-    start: { x: pageWidth / 2 + 18, y: pageHeight - 238 },
-    end: { x: pageWidth / 2 + 45, y: pageHeight - 238 },
-    thickness: 0.5,
-    color: paleGold,
-  });
-
-  drawCenteredText(page, "-", normalFont, 12, pageHeight - 244, pageWidth, gold);
+  // Centre ornament
+  drawCenteredText(page, "❧", normalFont, 20, pageHeight - 245, pageWidth, gold);
 
   // Main title
   drawCenteredText(
@@ -264,7 +232,7 @@ function addGracePage(
     "Made Especially",
     boldFont,
     62,
-    pageHeight - 330,
+    pageHeight - 325,
     pageWidth,
     darkGreen
   );
@@ -274,119 +242,48 @@ function addGracePage(
     "for You",
     boldFont,
     56,
-    pageHeight - 395,
+    pageHeight - 390,
     pageWidth,
     darkGreen
   );
 
-  // Divider under title
-  page.drawLine({
-    start: { x: pageWidth / 2 - 75, y: pageHeight - 435 },
-    end: { x: pageWidth / 2 - 13, y: pageHeight - 435 },
-    thickness: 0.6,
-    color: paleGold,
-  });
-
-  page.drawLine({
-    start: { x: pageWidth / 2 + 13, y: pageHeight - 435 },
-    end: { x: pageWidth / 2 + 75, y: pageHeight - 435 },
-    thickness: 0.6,
-    color: paleGold,
-  });
-
-  drawCenteredText(page, "-", normalFont, 13, pageHeight - 441, pageWidth, gold);
-
+  // Subtitle
   drawCenteredText(
     page,
     "A personalised gift to treasure forever.",
     normalFont,
     20,
-    pageHeight - 485,
+    pageHeight - 470,
     pageWidth,
     charcoal
   );
 
-  page.drawLine({
-    start: { x: pageWidth / 2 - 32, y: pageHeight - 522 },
-    end: { x: pageWidth / 2 + 32, y: pageHeight - 522 },
-    thickness: 0.55,
-    color: paleGold,
-  });
-
-  // To / From writing lines
-  const labelX = 112;
-  const lineX = 165;
-  const lineEndX = pageWidth - 110;
-  const toY = 265;
-  const fromY = 185;
-
-  page.drawText("TO", {
-    x: labelX,
-    y: toY + 4,
-    size: 14,
-    font: normalFont,
-    color: gold,
-  });
-
-  page.drawLine({
-    start: { x: lineX, y: toY + 8 },
-    end: { x: lineEndX, y: toY + 8 },
-    thickness: 0.75,
-    color: paleGold,
-  });
-
-  page.drawText("FROM", {
-    x: labelX,
-    y: fromY + 4,
-    size: 14,
-    font: normalFont,
-    color: gold,
-  });
-
-  page.drawLine({
-    start: { x: lineX + 22, y: fromY + 8 },
-    end: { x: lineEndX, y: fromY + 8 },
-    thickness: 0.75,
-    color: paleGold,
-  });
+  // To / From section — no placeholder lines.
+  const labelSize = 12;
+  const nameSize = 21;
 
   if (recipient) {
-    const size = recipient.length > 26 ? 15 : 18;
-    const textWidth = normalFont.widthOfTextAtSize(recipient, size);
-    page.drawText(recipient, {
-      x: lineX + 18,
-      y: toY + 15,
-      size,
-      font: normalFont,
-      color: darkGreen,
-    });
+    drawCenteredText(page, "TO", normalFont, labelSize, 250, pageWidth, gold);
+    drawCenteredText(page, recipient, normalFont, nameSize, 222, pageWidth, darkGreen);
+  } else {
+    drawCenteredText(page, "TO", normalFont, labelSize, 238, pageWidth, gold);
   }
 
   if (fromName) {
-    const size = fromName.length > 26 ? 15 : 18;
-    const textWidth = normalFont.widthOfTextAtSize(fromName, size);
-    page.drawText(fromName, {
-      x: lineX + 40,
-      y: fromY + 15,
-      size,
-      font: normalFont,
-      color: darkGreen,
-    });
+    drawCenteredText(page, "FROM", normalFont, labelSize, 170, pageWidth, gold);
+    drawCenteredText(page, fromName, normalFont, nameSize, 142, pageWidth, darkGreen);
+  } else {
+    drawCenteredText(page, "FROM", normalFont, labelSize, 158, pageWidth, gold);
   }
 
-  // Bottom ornament + footer
-  page.drawLine({
-    start: { x: pageWidth / 2 - 28, y: 104 },
-    end: { x: pageWidth / 2 + 28, y: 104 },
-    thickness: 0.45,
-    color: paleGold,
-  });
+  // Bottom ornament and footer
+  drawCenteredText(page, "❦", normalFont, 19, 103, pageWidth, gold);
 
   drawCenteredText(
     page,
     "A  G I F T  O F  M E M O R I E S  T O  K E E P  F O R E V E R .",
     normalFont,
-    10,
+    9,
     70,
     pageWidth,
     gold
