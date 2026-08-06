@@ -15,6 +15,16 @@ type Order = {
   pdf_url: string | null;
   pdf_status: string | null;
   exported_at: string | null;
+  gelato_order_id: string | null;
+  gelato_status: string | null;
+  gelato_product_uid: string | null;
+  gelato_page_count: number | null;
+  gelato_shipment_method_uid: string | null;
+  gelato_quote_currency: string | null;
+  gelato_quote_total: number | null;
+  gelato_tracking_url: string | null;
+  gelato_error: string | null;
+  sent_to_gelato_at: string | null;
 };
 
 type OrderImage = {
@@ -62,6 +72,8 @@ export default function OrderDetailPage() {
   const [regenerationInstructions, setRegenerationInstructions] = useState<Record<string, string>>({});
   const [captionDrafts, setCaptionDrafts] = useState<Record<string, string>>({});
   const [savingCaptionImageId, setSavingCaptionImageId] = useState<string | null>(null);
+  const [quotingGelato, setQuotingGelato] = useState(false);
+  const [sendingGelato, setSendingGelato] = useState(false);
   const [message, setMessage] = useState("");
 
   const generatedCount = images.filter((image) => image.generated_url).length;
@@ -70,6 +82,18 @@ export default function OrderDetailPage() {
   const productType = order?.product_type === "story_book" ? "story_book" : "colouring_book";
   const isStoryBook = productType === "story_book";
   const productLabel = isStoryBook ? "Story Book" : "Colouring Book";
+  const isColouringBook = productType === "colouring_book";
+  const hasExportedPdf = order?.pdf_status === "exported" && Boolean(order?.pdf_url);
+  const hasGelatoOrder = Boolean(order?.gelato_order_id);
+  const canQuoteGelato = Boolean(order && isColouringBook && hasExportedPdf && !hasGelatoOrder);
+  const canSendGelato = Boolean(
+    order &&
+      isColouringBook &&
+      hasExportedPdf &&
+      !hasGelatoOrder &&
+      order.gelato_status === "quoted" &&
+      order.gelato_shipment_method_uid
+  );
 
   async function loadOrder() {
     setLoading(true);
@@ -412,6 +436,92 @@ export default function OrderDetailPage() {
     }
   }
 
+  async function quoteGelato() {
+    setQuotingGelato(true);
+    setMessage("Getting Gelato quote...");
+
+    try {
+      const response = await fetch(`/api/orders/${orderId}/gelato/quote`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.error || "Gelato quote failed.");
+        await loadOrder();
+        return;
+      }
+
+      const currency = data.currency || data.order?.gelato_quote_currency || "";
+      const total =
+        data.estimatedTotal ??
+        data.order?.gelato_quote_total ??
+        null;
+
+      setMessage(
+        total !== null
+          ? `Gelato quote received: ${currency} ${Number(total).toFixed(2)}.`
+          : "Gelato quote received."
+      );
+
+      await loadOrder();
+    } catch {
+      setMessage("Gelato quote failed.");
+      await loadOrder();
+    } finally {
+      setQuotingGelato(false);
+    }
+  }
+
+  async function sendToGelato() {
+    const confirmed = window.confirm(
+      "Send this order to Gelato for real production? Only continue if the PDF, address, quote, and order details are correct."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSendingGelato(true);
+    setMessage("Sending order to Gelato...");
+
+    try {
+      const response = await fetch(`/api/orders/${orderId}/gelato/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.error || "Gelato send failed.");
+        await loadOrder();
+        return;
+      }
+
+      setMessage(
+        data.order?.gelato_order_id
+          ? `Sent to Gelato successfully. Gelato order: ${data.order.gelato_order_id}`
+          : "Sent to Gelato successfully."
+      );
+
+      await loadOrder();
+    } catch {
+      setMessage("Gelato send failed.");
+      await loadOrder();
+    } finally {
+      setSendingGelato(false);
+    }
+  }
+
   useEffect(() => {
     if (orderId) {
       loadOrder();
@@ -467,6 +577,29 @@ export default function OrderDetailPage() {
               <p>Approved: {approvedCount}/{images.length}</p>
               <p>Failed: {failedCount}</p>
               <p>PDF: {order.pdf_status || "not_exported"}</p>
+              <p>Gelato: {order.gelato_status || "not_quoted"}</p>
+              {order.gelato_page_count && (
+                <p>Gelato pages: {order.gelato_page_count}</p>
+              )}
+              {order.gelato_quote_total !== null && order.gelato_quote_total !== undefined && (
+                <p>
+                  Quote: {order.gelato_quote_currency || ""}{" "}
+                  {Number(order.gelato_quote_total).toFixed(2)}
+                </p>
+              )}
+              {order.gelato_order_id && (
+                <p>Gelato ID: {order.gelato_order_id}</p>
+              )}
+              {order.gelato_tracking_url && (
+                <a
+                  href={order.gelato_tracking_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 block text-green-300 underline"
+                >
+                  Tracking
+                </a>
+              )}
 
               {order.pdf_url && (
                 <a
@@ -510,11 +643,31 @@ export default function OrderDetailPage() {
 
               <button
                 onClick={exportPdf}
-                disabled={exportingPdf || approvedCount === 0 || generating || regeneratingImageId !== null || approvingAll || deletingOrder}
+                disabled={exportingPdf || approvedCount === 0 || generating || regeneratingImageId !== null || approvingAll || deletingOrder || quotingGelato || sendingGelato}
                 className="rounded-xl border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-100 hover:border-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {exportingPdf ? "Exporting PDF..." : isStoryBook ? "Export Story Book PDF" : "Export Approved PDF"}
               </button>
+
+              {isColouringBook && (
+                <button
+                  onClick={quoteGelato}
+                  disabled={!canQuoteGelato || quotingGelato || sendingGelato || exportingPdf || generating || regeneratingImageId !== null || approvingAll || deletingOrder}
+                  className="rounded-xl border border-blue-900 px-5 py-3 text-sm font-medium text-blue-300 hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {quotingGelato ? "Quoting..." : "Quote Gelato"}
+                </button>
+              )}
+
+              {isColouringBook && (
+                <button
+                  onClick={sendToGelato}
+                  disabled={!canSendGelato || quotingGelato || sendingGelato || exportingPdf || generating || regeneratingImageId !== null || approvingAll || deletingOrder}
+                  className="rounded-xl border border-purple-900 px-5 py-3 text-sm font-medium text-purple-300 hover:border-purple-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {sendingGelato ? "Sending..." : hasGelatoOrder ? "Sent to Gelato" : "Send to Gelato"}
+                </button>
+              )}
 
               <button
                 onClick={deleteOrder}
@@ -529,6 +682,12 @@ export default function OrderDetailPage() {
           {message && (
             <p className="mt-4 text-sm text-neutral-300">
               {message}
+            </p>
+          )}
+
+          {order.gelato_error && (
+            <p className="mt-3 rounded-xl border border-red-900 bg-red-950/30 px-4 py-3 text-sm text-red-300">
+              Gelato error: {order.gelato_error}
             </p>
           )}
 
