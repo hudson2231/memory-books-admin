@@ -136,12 +136,12 @@ export default function OrderDetailPage() {
     try {
       let totalGenerated = 0;
       let totalFailed = 0;
-      let failedTotal = 0;
       let remaining = 1;
+      let failedTotal = 0;
       let batchNumber = 0;
-      const maxBatches = 60;
+      const maxBatches = 80;
 
-      while (remaining > 0 && batchNumber < maxBatches) {
+      while ((remaining > 0 || failedTotal > 0 || batchNumber === 0) && batchNumber < maxBatches) {
         batchNumber += 1;
 
         setMessage(
@@ -166,26 +166,35 @@ export default function OrderDetailPage() {
 
         totalGenerated += generatedThisRun;
         totalFailed += failedThisRun;
-        failedTotal = Number(data.failed_total || totalFailed);
         remaining = Number(data.remaining || 0);
+        failedTotal = Number(data.failed_total || 0);
 
         await loadOrder();
 
-        if (generatedThisRun === 0 && failedThisRun === 0 && remaining > 0) {
+        if (remaining === 0 && failedTotal === 0) {
+          break;
+        }
+
+        if (generatedThisRun === 0 && failedThisRun === 0) {
           setMessage(
-            `Generation stopped because no pages changed. ${remaining} page(s) still remaining.`
+            `Generation stopped because no pages changed. ${remaining} pending page(s), ${failedTotal} failed page(s).`
+          );
+          return;
+        }
+
+        // If every attempted page in this batch failed and only failed pages remain,
+        // stop instead of looping forever on the same broken files.
+        if (remaining === 0 && failedTotal > 0 && generatedThisRun === 0 && failedThisRun > 0) {
+          setMessage(
+            `Generation finished with ${failedTotal} failed page(s). Use Generate Page or Manual Replace on the failed pages.`
           );
           return;
         }
       }
 
-      if (remaining > 0) {
+      if (remaining > 0 || failedTotal > 0) {
         setMessage(
-          `Generation stopped after ${batchNumber} batch(es). ${remaining} page(s) still remaining. Click Generate All Pages again.`
-        );
-      } else if (failedTotal > 0) {
-        setMessage(
-          `Generation finished, but ${failedTotal} page(s) failed. Click Generate All Pages again to retry failed pages, or manually replace them.`
+          `Generation stopped after ${batchNumber} batch(es). ${remaining} pending page(s), ${failedTotal} failed page(s).`
         );
       } else {
         setMessage(`Generation finished. ${totalGenerated} page(s) generated.`);

@@ -515,6 +515,133 @@ function normaliseCaption(value: string | null) {
   return cleaned.length > 0 ? cleaned : null;
 }
 
+function normaliseGraceValue(value: string | null, maxLength: number) {
+  if (!value) return null;
+
+  const cleaned = value
+    .replace(/\s+/g, " ")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .trim()
+    .slice(0, maxLength);
+
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function collectGraceFieldsFromEntries(entries: Array<{ name: string; value: string }>) {
+  let graceRecipient: string | null = null;
+  let graceFrom: string | null = null;
+  let graceMessage: string | null = null;
+
+  for (const entry of entries) {
+    const rawKey = entry.name || "";
+    const key = rawKey
+      .toLowerCase()
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/[:*]/g, "")
+      .trim();
+
+    const value80 = normaliseGraceValue(entry.value, 80);
+    const value240 = normaliseGraceValue(entry.value, 240);
+
+    if (!value240) continue;
+
+    // Ignore upload/caption/page image properties.
+    if (
+      key.includes("upload") ||
+      key.includes("image") ||
+      key.includes("photo") ||
+      key.includes("caption") ||
+      key.match(/\bpage\s*\d+\b/)
+    ) {
+      continue;
+    }
+
+    if (
+      !graceRecipient &&
+      (
+        key === "to" ||
+        key === "for" ||
+        key === "made for" ||
+        key === "made especially for" ||
+        key === "recipient" ||
+        key === "gift recipient" ||
+        key === "gift to" ||
+        key === "who is this for"
+      )
+    ) {
+      graceRecipient = value80;
+      continue;
+    }
+
+    if (
+      !graceFrom &&
+      (
+        key === "from" ||
+        key === "sender" ||
+        key === "gift from" ||
+        key === "made by" ||
+        key === "from name" ||
+        key === "your name" ||
+        key === "who is this from"
+      )
+    ) {
+      graceFrom = value80;
+      continue;
+    }
+
+    if (
+      !graceMessage &&
+      (
+        key === "message" ||
+        key === "gift message" ||
+        key === "personal message" ||
+        key === "personalised message" ||
+        key === "personalized message" ||
+        key === "note" ||
+        key === "optional message" ||
+        key === "short message" ||
+        key === "dedication"
+      )
+    ) {
+      graceMessage = value240;
+      continue;
+    }
+  }
+
+  return {
+    graceRecipient,
+    graceFrom,
+    graceMessage,
+  };
+}
+
+function collectGraceFields(order: Record<string, any>, lineItem: Record<string, any>) {
+  const entries: Array<{ name: string; value: string }> = [];
+
+  entries.push(...propertyEntriesFromLineItem(lineItem));
+
+  if (Array.isArray(order.note_attributes)) {
+    for (const attribute of order.note_attributes) {
+      const name = safeText(attribute?.name);
+      const value = safeText(attribute?.value);
+
+      if (name && value) {
+        entries.push({ name, value });
+      }
+    }
+  }
+
+  if (Array.isArray(order.line_items)) {
+    for (const item of order.line_items) {
+      entries.push(...propertyEntriesFromLineItem(item));
+    }
+  }
+
+  return collectGraceFieldsFromEntries(entries);
+}
+
 function collectCaptions(lineItem: Record<string, any>, pageCount: number) {
   const captions: Record<number, string> = {};
   const entries = propertyEntriesFromLineItem(lineItem);
@@ -615,6 +742,7 @@ export async function POST(request: Request) {
     const pageCount = inferPageCount(order);
     const productType = inferProductType(order);
     const captionsByPage = collectCaptions(lineItem, pageCount);
+    const graceFields = collectGraceFields(order, lineItem);
 
     const uploadUrls = Array.from(collectUploadUrls(order.line_items || []));
 
@@ -627,6 +755,10 @@ export async function POST(request: Request) {
       shopify_order_id: shopifyOrderId,
       shopify_order_name: shopifyOrderName,
       shopify_raw: order,
+
+      grace_recipient: graceFields.graceRecipient,
+      grace_from: graceFields.graceFrom,
+      grace_message: graceFields.graceMessage,
 
       ...mapAddress(order.shipping_address, "shipping"),
       ...mapAddress(order.billing_address, "billing"),
