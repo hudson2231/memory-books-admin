@@ -100,6 +100,180 @@ function wrapText(text: string, maxCharsPerLine: number) {
   return lines.slice(0, 3);
 }
 
+
+function valueToCleanString(value: unknown, maxLength: number) {
+  if (value === null || value === undefined) return "";
+
+  const cleaned = String(value)
+    .replace(/\s+/g, " ")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .trim()
+    .slice(0, maxLength);
+
+  return cleaned;
+}
+
+function normaliseGraceKey(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/[:*]/g, "")
+    .trim();
+}
+
+function propertyEntriesFromLineItem(lineItem: Record<string, any>) {
+  const properties = lineItem?.properties;
+  const entries: Array<{ name: string; value: string }> = [];
+
+  if (Array.isArray(properties)) {
+    for (const property of properties) {
+      const name = valueToCleanString(property?.name, 120);
+      const value = valueToCleanString(property?.value, 500);
+
+      if (name && value) {
+        entries.push({ name, value });
+      }
+    }
+  } else if (properties && typeof properties === "object") {
+    for (const [rawName, rawValue] of Object.entries(properties)) {
+      const name = valueToCleanString(rawName, 120);
+      const value = valueToCleanString(rawValue, 500);
+
+      if (name && value) {
+        entries.push({ name, value });
+      }
+    }
+  }
+
+  return entries;
+}
+
+function collectGraceFieldsFromEntries(entries: Array<{ name: string; value: string }>) {
+  let graceRecipient = "";
+  let graceFrom = "";
+  let graceMessage = "";
+
+  for (const entry of entries) {
+    const key = normaliseGraceKey(entry.name);
+    const value80 = valueToCleanString(entry.value, 80);
+    const value240 = valueToCleanString(entry.value, 240);
+
+    if (!value240) continue;
+
+    if (
+      key.includes("upload") ||
+      key.includes("image") ||
+      key.includes("photo") ||
+      key.includes("file") ||
+      key.includes("caption") ||
+      key.match(/\bpage\s*\d+\b/)
+    ) {
+      continue;
+    }
+
+    if (
+      !graceRecipient &&
+      (
+        key === "to" ||
+        key === "for" ||
+        key === "made for" ||
+        key === "made especially for" ||
+        key === "recipient" ||
+        key === "recipient name" ||
+        key === "gift recipient" ||
+        key === "gift to" ||
+        key === "who is this for" ||
+        key === "who is the book for" ||
+        key === "book for" ||
+        key === "name to"
+      )
+    ) {
+      graceRecipient = value80;
+      continue;
+    }
+
+    if (
+      !graceFrom &&
+      (
+        key === "from" ||
+        key === "sender" ||
+        key === "sender name" ||
+        key === "gift from" ||
+        key === "made by" ||
+        key === "from name" ||
+        key === "your name" ||
+        key === "who is this from" ||
+        key === "who is the book from" ||
+        key === "book from" ||
+        key === "name from"
+      )
+    ) {
+      graceFrom = value80;
+      continue;
+    }
+
+    if (
+      !graceMessage &&
+      (
+        key === "message" ||
+        key === "gift message" ||
+        key === "personal message" ||
+        key === "personalised message" ||
+        key === "personalized message" ||
+        key === "note" ||
+        key === "optional message" ||
+        key === "short message" ||
+        key === "dedication"
+      )
+    ) {
+      graceMessage = value240;
+      continue;
+    }
+  }
+
+  return {
+    graceRecipient,
+    graceFrom,
+    graceMessage,
+  };
+}
+
+function collectGraceFieldsFromShopifyRaw(order: Record<string, any>) {
+  const raw = order.shopify_raw;
+
+  if (!raw || typeof raw !== "object") {
+    return {
+      graceRecipient: "",
+      graceFrom: "",
+      graceMessage: "",
+    };
+  }
+
+  const entries: Array<{ name: string; value: string }> = [];
+
+  if (Array.isArray(raw.note_attributes)) {
+    for (const attribute of raw.note_attributes) {
+      const name = valueToCleanString(attribute?.name, 120);
+      const value = valueToCleanString(attribute?.value, 500);
+
+      if (name && value) {
+        entries.push({ name, value });
+      }
+    }
+  }
+
+  if (Array.isArray(raw.line_items)) {
+    for (const item of raw.line_items) {
+      entries.push(...propertyEntriesFromLineItem(item));
+    }
+  }
+
+  return collectGraceFieldsFromEntries(entries);
+}
+
+
 function cleanGraceText(value: unknown, maxLength: number) {
   if (typeof value !== "string") return "";
   return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
@@ -170,9 +344,19 @@ function addGracePage(
   const darkGreen = rgb(0.035, 0.16, 0.095);
   const charcoal = rgb(0.24, 0.22, 0.2);
 
-  const recipient = cleanGraceText(order.grace_recipient, 80);
-  const fromName = cleanGraceText(order.grace_from, 80);
-  const message = cleanGraceText(order.grace_message, 240);
+  const fallbackGraceFields = collectGraceFieldsFromShopifyRaw(order);
+
+  const recipient =
+    cleanGraceText(order.grace_recipient, 80) ||
+    cleanGraceText(fallbackGraceFields.graceRecipient, 80);
+
+  const fromName =
+    cleanGraceText(order.grace_from, 80) ||
+    cleanGraceText(fallbackGraceFields.graceFrom, 80);
+
+  const message =
+    cleanGraceText(order.grace_message, 240) ||
+    cleanGraceText(fallbackGraceFields.graceMessage, 240);
 
   page.drawRectangle({
     x: 0,

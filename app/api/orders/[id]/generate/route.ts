@@ -11,7 +11,10 @@ import {
 } from "../../../../../lib/image-generation";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
-const MAX_IMAGES_PER_REQUEST = 2;
+// Keep this at 1 for Vercel reliability.
+// The frontend loops through batches, so Generate All still processes the whole order,
+// but each API call is less likely to timeout.
+const MAX_IMAGES_PER_REQUEST = 1;
 
 function getGenerationInputUrl(image: Record<string, any>) {
   return (

@@ -139,7 +139,7 @@ export default function OrderDetailPage() {
       let remaining = 1;
       let failedTotal = 0;
       let batchNumber = 0;
-      const maxBatches = 80;
+      const maxBatches = 120;
 
       while ((remaining > 0 || failedTotal > 0 || batchNumber === 0) && batchNumber < maxBatches) {
         batchNumber += 1;
@@ -156,7 +156,15 @@ export default function OrderDetailPage() {
         const data = await response.json();
 
         if (!response.ok) {
-          setMessage(data.error || "Generation failed.");
+          const errorMessage = data.error || "Generation failed.";
+
+          if (errorMessage.toLowerCase().includes("no ungenerated pages left")) {
+            setMessage(`Generation finished. ${totalGenerated} page(s) generated.`);
+            await loadOrder();
+            return;
+          }
+
+          setMessage(errorMessage);
           await loadOrder();
           return;
         }
@@ -201,8 +209,12 @@ export default function OrderDetailPage() {
       }
 
       await loadOrder();
-    } catch {
-      setMessage("Generation failed.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? `Generation failed: ${error.message}`
+          : "Generation failed."
+      );
       await loadOrder();
     } finally {
       setGenerating(false);
