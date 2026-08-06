@@ -14,7 +14,8 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 // Keep this at 1 for Vercel reliability.
 // The frontend loops through batches, so Generate All still processes the whole order,
 // but each API call is less likely to timeout.
-const MAX_IMAGES_PER_REQUEST = 1;
+const COLOURING_MAX_IMAGES_PER_REQUEST = 5;
+const STORY_MAX_IMAGES_PER_REQUEST = 1;
 
 function getGenerationInputUrl(image: Record<string, any>) {
   return (
@@ -81,11 +82,16 @@ export async function POST(
   const pendingImages = images.filter(isPending);
   const failedImages = images.filter((image) => !isGenerated(image) && isFailed(image));
 
+  const maxImagesPerRequest =
+    productType === "story_book"
+      ? STORY_MAX_IMAGES_PER_REQUEST
+      : COLOURING_MAX_IMAGES_PER_REQUEST;
+
   // Normal pages first. Only retry failed pages after no normal pending pages remain.
   const selectedImages =
     pendingImages.length > 0
-      ? pendingImages.slice(0, MAX_IMAGES_PER_REQUEST)
-      : failedImages.slice(0, MAX_IMAGES_PER_REQUEST);
+      ? pendingImages.slice(0, maxImagesPerRequest)
+      : failedImages.slice(0, maxImagesPerRequest);
 
   if (selectedImages.length === 0) {
     return NextResponse.json(
