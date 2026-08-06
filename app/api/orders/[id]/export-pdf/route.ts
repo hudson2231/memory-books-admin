@@ -238,13 +238,13 @@ function addGracePage(
     color: gold,
   });
 
-  // Main heading moved up directly under brand area.
+  // Main heading. Balanced between the top brand divider and lower divider.
   drawCenteredText(
     page,
     "Made Especially",
     boldFont,
     60,
-    pageHeight - 230,
+    pageHeight - 225,
     pageWidth,
     darkGreen
   );
@@ -254,66 +254,55 @@ function addGracePage(
     "for You",
     boldFont,
     54,
-    pageHeight - 292,
+    pageHeight - 287,
     pageWidth,
     darkGreen
   );
 
-  // Small divider under heading.
+  // Lower divider. Kept close enough to the title so the top/bottom spacing feels even.
   page.drawLine({
-    start: { x: pageWidth / 2 - 38, y: pageHeight - 326 },
-    end: { x: pageWidth / 2 - 7, y: pageHeight - 326 },
+    start: { x: pageWidth / 2 - 38, y: pageHeight - 335 },
+    end: { x: pageWidth / 2 - 7, y: pageHeight - 335 },
     thickness: 0.45,
     color: paleGold,
   });
 
   page.drawLine({
-    start: { x: pageWidth / 2 + 7, y: pageHeight - 326 },
-    end: { x: pageWidth / 2 + 38, y: pageHeight - 326 },
+    start: { x: pageWidth / 2 + 7, y: pageHeight - 335 },
+    end: { x: pageWidth / 2 + 38, y: pageHeight - 335 },
     thickness: 0.45,
     color: paleGold,
   });
 
   page.drawCircle({
     x: pageWidth / 2,
-    y: pageHeight - 326,
+    y: pageHeight - 335,
     size: 1.5,
     color: gold,
   });
 
-  // Subtitle.
-  drawCenteredText(
-    page,
-    "A personalised gift to treasure forever.",
-    normalFont,
-    19,
-    pageHeight - 370,
-    pageWidth,
-    charcoal
-  );
-
-  // To / From moved upward.
+  // To / From moved upward. No placeholder lines.
   if (recipient) {
-    drawCenteredText(page, "TO", normalFont, 11, pageHeight - 455, pageWidth, gold);
-    drawCenteredText(page, recipient, normalFont, 21, pageHeight - 485, pageWidth, darkGreen);
+    drawCenteredText(page, "TO", normalFont, 11, pageHeight - 420, pageWidth, gold);
+    drawCenteredText(page, recipient, normalFont, 22, pageHeight - 450, pageWidth, darkGreen);
   } else {
-    drawCenteredText(page, "TO", normalFont, 11, pageHeight - 470, pageWidth, gold);
+    drawCenteredText(page, "TO", normalFont, 11, pageHeight - 435, pageWidth, gold);
   }
 
   if (fromName) {
-    drawCenteredText(page, "FROM", normalFont, 11, pageHeight - 540, pageWidth, gold);
-    drawCenteredText(page, fromName, normalFont, 21, pageHeight - 570, pageWidth, darkGreen);
+    drawCenteredText(page, "FROM", normalFont, 11, pageHeight - 500, pageWidth, gold);
+    drawCenteredText(page, fromName, normalFont, 22, pageHeight - 530, pageWidth, darkGreen);
   } else {
-    drawCenteredText(page, "FROM", normalFont, 11, pageHeight - 555, pageWidth, gold);
+    drawCenteredText(page, "FROM", normalFont, 11, pageHeight - 515, pageWidth, gold);
   }
 
-  // Customer message underneath TO/FROM.
+  // Customer message underneath TO/FROM, slightly larger.
   if (message) {
-    const messageFontSize = 15;
-    const lineHeight = 21;
-    const maxTextWidth = pageWidth - 150;
+    const messageFontSize = 17;
+    const lineHeight = 23;
+    const maxTextWidth = pageWidth - 140;
     const lines = wrapGraceTextByWidth(message, normalFont, messageFontSize, maxTextWidth);
-    const startY = pageHeight - 645;
+    const startY = pageHeight - 610;
 
     lines.forEach((line, index) => {
       drawCenteredText(
