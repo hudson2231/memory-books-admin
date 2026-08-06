@@ -57,7 +57,10 @@ export function getGelatoPageCountForOrder(order: Record<string, any>) {
   const artworkPages = getExpectedArtworkPages(order, 20);
 
   if (productType === "colouring_book") {
-    return artworkPages * 2 + 2;
+    // Colouring Book PDF structure:
+    // front cover + grace page + each artwork page + blank back for each artwork + back cover
+    // Example: 20 artwork pages = 1 + 1 + 20 + 20 + 1 = 43 pages.
+    return artworkPages * 2 + 3;
   }
 
   // Story Book currently uses:
