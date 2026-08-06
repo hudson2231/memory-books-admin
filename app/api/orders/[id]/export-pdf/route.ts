@@ -8,14 +8,19 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const EXPORT_VERSION = "pdf-export-clean-jpeg-v3";
+const EXPORT_VERSION = "pdf-export-gelato-spread-v4";
 
-const A4_PAGE_WIDTH = 595.28;
-const A4_PAGE_HEIGHT = 841.89;
+// Gelato template dimensions for:
+// glued-multi-page-brochures_pf_a4_pt_170-gsm-uncoated_cl_4-4_bt_glued-left_cpt_250-gsm-uncoated_ver
+// Page 1 is a wide cover spread. Pages 2+ are A4 portrait pages with bleed.
+const GELATO_COVER_SPREAD_WIDTH = 1217.54;
+const GELATO_COVER_SPREAD_HEIGHT = 858.898;
+const A4_PAGE_WIDTH = 612.283;
+const A4_PAGE_HEIGHT = 858.898;
 
-// 200 DPI A4. Big enough for print line art, small enough for 20/32/40 page exports.
-const A4_EXPORT_WIDTH_PX = 1654;
-const A4_EXPORT_HEIGHT_PX = 2339;
+// 200 DPI-ish for Gelato A4 with bleed, roughly 216 x 303 mm.
+const A4_EXPORT_WIDTH_PX = 1701;
+const A4_EXPORT_HEIGHT_PX = 2386;
 
 function slugify(value: string) {
   return value
@@ -53,8 +58,16 @@ function getExpectedArtworkPages(order: Record<string, any>, fallback: number) {
   return fallback;
 }
 
-function getGelatoPageCountForColouringBook(artworkPages: number) {
+function getGelatoProductPageCountForColouringBook(artworkPages: number) {
+  // Gelato product page count still includes front cover + back cover as separate sides.
+  // Example: 20 artwork pages = front cover + grace page + 20 artwork + 19 blank backs + back cover = 42.
   return artworkPages * 2 + 2;
+}
+
+function getGelatoFilePageCountForColouringBook(artworkPages: number) {
+  // The uploaded PDF file has one wide cover-spread print area instead of separate front/back cover pages.
+  // Example: 20 artwork pages = cover spread + grace page + 20 artwork + 19 blank backs = 41 file pages.
+  return artworkPages * 2 + 1;
 }
 
 function cleanCaption(value: unknown) {
@@ -398,6 +411,92 @@ async function addCoverImagePage(
   page.drawImage(embeddedImage, box);
 }
 
+
+function getCoverPanelDrawBox(
+  imageWidth: number,
+  imageHeight: number,
+  panelX: number,
+  panelY: number,
+  panelWidth: number,
+  panelHeight: number
+) {
+  const scale = Math.max(panelWidth / imageWidth, panelHeight / imageHeight);
+  const drawWidth = imageWidth * scale;
+  const drawHeight = imageHeight * scale;
+
+  return {
+    x: panelX + (panelWidth - drawWidth) / 2,
+    y: panelY + (panelHeight - drawHeight) / 2,
+    width: drawWidth,
+    height: drawHeight,
+  };
+}
+
+async function embedCoverPng(pdfDoc: PDFDocument, imagePath: string) {
+  const sourceBuffer = await fs.readFile(imagePath);
+
+  const pngBuffer = await sharp(sourceBuffer, {
+    failOn: "none",
+    animated: false,
+  })
+    .flatten({ background: "#fff7e8" })
+    .png()
+    .toBuffer();
+
+  return await pdfDoc.embedPng(pngBuffer);
+}
+
+async function addColouringCoverSpreadPage(
+  pdfDoc: PDFDocument,
+  frontCoverPath: string,
+  backCoverPath: string
+) {
+  const page = pdfDoc.addPage([
+    GELATO_COVER_SPREAD_WIDTH,
+    GELATO_COVER_SPREAD_HEIGHT,
+  ]);
+
+  page.drawRectangle({
+    x: 0,
+    y: 0,
+    width: GELATO_COVER_SPREAD_WIDTH,
+    height: GELATO_COVER_SPREAD_HEIGHT,
+    color: rgb(1, 0.968, 0.91),
+  });
+
+  const backCover = await embedCoverPng(pdfDoc, backCoverPath);
+  const frontCover = await embedCoverPng(pdfDoc, frontCoverPath);
+
+  const leftPanelX = 0;
+  const leftPanelWidth = GELATO_COVER_SPREAD_WIDTH / 2;
+  const rightPanelX = leftPanelWidth;
+  const rightPanelWidth = GELATO_COVER_SPREAD_WIDTH - rightPanelX;
+
+  page.drawImage(
+    backCover,
+    getCoverPanelDrawBox(
+      backCover.width,
+      backCover.height,
+      leftPanelX,
+      0,
+      leftPanelWidth,
+      GELATO_COVER_SPREAD_HEIGHT
+    )
+  );
+
+  page.drawImage(
+    frontCover,
+    getCoverPanelDrawBox(
+      frontCover.width,
+      frontCover.height,
+      rightPanelX,
+      0,
+      rightPanelWidth,
+      GELATO_COVER_SPREAD_HEIGHT
+    )
+  );
+}
+
 async function downloadImageBuffer(imageUrl: string, pageNumber: number) {
   const response = await fetch(imageUrl, {
     cache: "no-store",
@@ -656,7 +755,7 @@ export async function POST(
       const frontCoverPath = path.join(process.cwd(), "public", "covers", "colouring-front.png");
       const backCoverPath = path.join(process.cwd(), "public", "covers", "colouring-back.png");
 
-      await addCoverImagePage(pdfDoc, frontCoverPath, pageWidth, pageHeight);
+      await addColouringCoverSpreadPage(pdfDoc, frontCoverPath, backCoverPath);
       addGracePage(pdfDoc, pageWidth, pageHeight, normalFont, boldFont, order);
 
       const colouringImages = images.slice(0, expectedArtworkPages);
@@ -686,13 +785,11 @@ export async function POST(
         }
       }
 
-      await addCoverImagePage(pdfDoc, backCoverPath, pageWidth, pageHeight);
+      const targetGelatoFilePageCount = getGelatoFilePageCountForColouringBook(expectedArtworkPages);
 
-      const targetGelatoPageCount = getGelatoPageCountForColouringBook(expectedArtworkPages);
-
-      if (pdfDoc.getPageCount() !== targetGelatoPageCount) {
+      if (pdfDoc.getPageCount() !== targetGelatoFilePageCount) {
         throw new Error(
-          `${EXPORT_VERSION}: PDF page count mismatch. Expected ${targetGelatoPageCount}, got ${pdfDoc.getPageCount()}.`
+          `${EXPORT_VERSION}: PDF file page count mismatch. Expected ${targetGelatoFilePageCount}, got ${pdfDoc.getPageCount()}.`
         );
       }
     }
@@ -744,7 +841,12 @@ export async function POST(
       order: updatedOrder,
       pdf_url: pdfUrl,
       exported_pages: exportedPages,
-      gelato_page_count: productType === "colouring_book" ? exportedPages : null,
+      gelato_page_count:
+        productType === "colouring_book"
+          ? getGelatoProductPageCountForColouringBook(
+              getExpectedArtworkPages(order, images.length)
+            )
+          : null,
     });
   } catch (error) {
     const message =
