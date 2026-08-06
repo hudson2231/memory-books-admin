@@ -221,10 +221,50 @@ function addGracePage(
   );
 
   // Tiny ornament under brand
-  drawCenteredText(page, "◆", normalFont, 8, pageHeight - 145, pageWidth, gold);
+  
+  page.drawLine({
+    start: { x: pageWidth / 2 - 35, y: pageHeight - 140 },
+    end: { x: pageWidth / 2 - 8, y: pageHeight - 140 },
+    thickness: 0.45,
+    color: paleGold,
+  });
+
+  page.drawLine({
+    start: { x: pageWidth / 2 + 8, y: pageHeight - 140 },
+    end: { x: pageWidth / 2 + 35, y: pageHeight - 140 },
+    thickness: 0.45,
+    color: paleGold,
+  });
+
+  page.drawCircle({
+    x: pageWidth / 2,
+    y: pageHeight - 140,
+    size: 1.6,
+    color: gold,
+  });
 
   // Centre ornament
-  drawCenteredText(page, "❧", normalFont, 20, pageHeight - 245, pageWidth, gold);
+  
+  page.drawLine({
+    start: { x: pageWidth / 2 - 32, y: pageHeight - 238 },
+    end: { x: pageWidth / 2 - 8, y: pageHeight - 238 },
+    thickness: 0.45,
+    color: paleGold,
+  });
+
+  page.drawLine({
+    start: { x: pageWidth / 2 + 8, y: pageHeight - 238 },
+    end: { x: pageWidth / 2 + 32, y: pageHeight - 238 },
+    thickness: 0.45,
+    color: paleGold,
+  });
+
+  page.drawCircle({
+    x: pageWidth / 2,
+    y: pageHeight - 238,
+    size: 1.8,
+    color: gold,
+  });
 
   // Main title
   drawCenteredText(
@@ -277,7 +317,27 @@ function addGracePage(
   }
 
   // Bottom ornament and footer
-  drawCenteredText(page, "❦", normalFont, 19, 103, pageWidth, gold);
+  
+  page.drawLine({
+    start: { x: pageWidth / 2 - 28, y: 104 },
+    end: { x: pageWidth / 2 - 7, y: 104 },
+    thickness: 0.45,
+    color: paleGold,
+  });
+
+  page.drawLine({
+    start: { x: pageWidth / 2 + 7, y: 104 },
+    end: { x: pageWidth / 2 + 28, y: 104 },
+    thickness: 0.45,
+    color: paleGold,
+  });
+
+  page.drawCircle({
+    x: pageWidth / 2,
+    y: 104,
+    size: 1.6,
+    color: gold,
+  });
 
   drawCenteredText(
     page,
