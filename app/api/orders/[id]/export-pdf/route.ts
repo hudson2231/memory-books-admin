@@ -159,6 +159,7 @@ function addGracePage(
 
   const recipient = cleanGraceText(order.grace_recipient, 80);
   const fromName = cleanGraceText(order.grace_from, 80);
+  const message = cleanGraceText(order.grace_message, 240);
 
   page.drawRectangle({
     x: 0,
@@ -168,7 +169,7 @@ function addGracePage(
     color: white,
   });
 
-  // Clean double border, close to the reference.
+  // Clean double border.
   const outer = 22;
   const inner = 31;
 
@@ -190,89 +191,60 @@ function addGracePage(
     borderWidth: 0.35,
   });
 
-  // Minimal corner curves/detail using simple short lines only.
+  // Minimal corner detail.
   const corner = 42;
 
-  // top-left
   page.drawLine({ start: { x: outer, y: pageHeight - corner }, end: { x: outer + corner, y: pageHeight - corner }, thickness: 0.45, color: paleGold });
   page.drawLine({ start: { x: outer + corner, y: pageHeight - outer }, end: { x: outer + corner, y: pageHeight - corner }, thickness: 0.45, color: paleGold });
 
-  // top-right
   page.drawLine({ start: { x: pageWidth - outer, y: pageHeight - corner }, end: { x: pageWidth - outer - corner, y: pageHeight - corner }, thickness: 0.45, color: paleGold });
   page.drawLine({ start: { x: pageWidth - outer - corner, y: pageHeight - outer }, end: { x: pageWidth - outer - corner, y: pageHeight - corner }, thickness: 0.45, color: paleGold });
 
-  // bottom-left
   page.drawLine({ start: { x: outer, y: corner }, end: { x: outer + corner, y: corner }, thickness: 0.45, color: paleGold });
   page.drawLine({ start: { x: outer + corner, y: outer }, end: { x: outer + corner, y: corner }, thickness: 0.45, color: paleGold });
 
-  // bottom-right
   page.drawLine({ start: { x: pageWidth - outer, y: corner }, end: { x: pageWidth - outer - corner, y: corner }, thickness: 0.45, color: paleGold });
   page.drawLine({ start: { x: pageWidth - outer - corner, y: outer }, end: { x: pageWidth - outer - corner, y: corner }, thickness: 0.45, color: paleGold });
 
-  // Brand
+  // Brand.
   drawCenteredText(
     page,
     "M E M O R Y   B O O K S",
     normalFont,
     15,
-    pageHeight - 122,
+    pageHeight - 112,
     pageWidth,
     gold
   );
 
-  // Tiny ornament under brand
-  
   page.drawLine({
-    start: { x: pageWidth / 2 - 35, y: pageHeight - 140 },
-    end: { x: pageWidth / 2 - 8, y: pageHeight - 140 },
+    start: { x: pageWidth / 2 - 35, y: pageHeight - 132 },
+    end: { x: pageWidth / 2 - 8, y: pageHeight - 132 },
     thickness: 0.45,
     color: paleGold,
   });
 
   page.drawLine({
-    start: { x: pageWidth / 2 + 8, y: pageHeight - 140 },
-    end: { x: pageWidth / 2 + 35, y: pageHeight - 140 },
+    start: { x: pageWidth / 2 + 8, y: pageHeight - 132 },
+    end: { x: pageWidth / 2 + 35, y: pageHeight - 132 },
     thickness: 0.45,
     color: paleGold,
   });
 
   page.drawCircle({
     x: pageWidth / 2,
-    y: pageHeight - 140,
+    y: pageHeight - 132,
     size: 1.6,
     color: gold,
   });
 
-  // Centre ornament
-  
-  page.drawLine({
-    start: { x: pageWidth / 2 - 32, y: pageHeight - 238 },
-    end: { x: pageWidth / 2 - 8, y: pageHeight - 238 },
-    thickness: 0.45,
-    color: paleGold,
-  });
-
-  page.drawLine({
-    start: { x: pageWidth / 2 + 8, y: pageHeight - 238 },
-    end: { x: pageWidth / 2 + 32, y: pageHeight - 238 },
-    thickness: 0.45,
-    color: paleGold,
-  });
-
-  page.drawCircle({
-    x: pageWidth / 2,
-    y: pageHeight - 238,
-    size: 1.8,
-    color: gold,
-  });
-
-  // Main title
+  // Main heading moved up directly under brand area.
   drawCenteredText(
     page,
     "Made Especially",
     boldFont,
-    62,
-    pageHeight - 325,
+    60,
+    pageHeight - 230,
     pageWidth,
     darkGreen
   );
@@ -281,43 +253,82 @@ function addGracePage(
     page,
     "for You",
     boldFont,
-    56,
-    pageHeight - 390,
+    54,
+    pageHeight - 292,
     pageWidth,
     darkGreen
   );
 
-  // Subtitle
+  // Small divider under heading.
+  page.drawLine({
+    start: { x: pageWidth / 2 - 38, y: pageHeight - 326 },
+    end: { x: pageWidth / 2 - 7, y: pageHeight - 326 },
+    thickness: 0.45,
+    color: paleGold,
+  });
+
+  page.drawLine({
+    start: { x: pageWidth / 2 + 7, y: pageHeight - 326 },
+    end: { x: pageWidth / 2 + 38, y: pageHeight - 326 },
+    thickness: 0.45,
+    color: paleGold,
+  });
+
+  page.drawCircle({
+    x: pageWidth / 2,
+    y: pageHeight - 326,
+    size: 1.5,
+    color: gold,
+  });
+
+  // Subtitle.
   drawCenteredText(
     page,
     "A personalised gift to treasure forever.",
     normalFont,
-    20,
-    pageHeight - 470,
+    19,
+    pageHeight - 370,
     pageWidth,
     charcoal
   );
 
-  // To / From section — no placeholder lines.
-  const labelSize = 12;
-  const nameSize = 21;
-
+  // To / From moved upward.
   if (recipient) {
-    drawCenteredText(page, "TO", normalFont, labelSize, 250, pageWidth, gold);
-    drawCenteredText(page, recipient, normalFont, nameSize, 222, pageWidth, darkGreen);
+    drawCenteredText(page, "TO", normalFont, 11, pageHeight - 455, pageWidth, gold);
+    drawCenteredText(page, recipient, normalFont, 21, pageHeight - 485, pageWidth, darkGreen);
   } else {
-    drawCenteredText(page, "TO", normalFont, labelSize, 238, pageWidth, gold);
+    drawCenteredText(page, "TO", normalFont, 11, pageHeight - 470, pageWidth, gold);
   }
 
   if (fromName) {
-    drawCenteredText(page, "FROM", normalFont, labelSize, 170, pageWidth, gold);
-    drawCenteredText(page, fromName, normalFont, nameSize, 142, pageWidth, darkGreen);
+    drawCenteredText(page, "FROM", normalFont, 11, pageHeight - 540, pageWidth, gold);
+    drawCenteredText(page, fromName, normalFont, 21, pageHeight - 570, pageWidth, darkGreen);
   } else {
-    drawCenteredText(page, "FROM", normalFont, labelSize, 158, pageWidth, gold);
+    drawCenteredText(page, "FROM", normalFont, 11, pageHeight - 555, pageWidth, gold);
   }
 
-  // Bottom ornament and footer
-  
+  // Customer message underneath TO/FROM.
+  if (message) {
+    const messageFontSize = 15;
+    const lineHeight = 21;
+    const maxTextWidth = pageWidth - 150;
+    const lines = wrapGraceTextByWidth(message, normalFont, messageFontSize, maxTextWidth);
+    const startY = pageHeight - 645;
+
+    lines.forEach((line, index) => {
+      drawCenteredText(
+        page,
+        line,
+        normalFont,
+        messageFontSize,
+        startY - index * lineHeight,
+        pageWidth,
+        charcoal
+      );
+    });
+  }
+
+  // Bottom footer.
   page.drawLine({
     start: { x: pageWidth / 2 - 28, y: 104 },
     end: { x: pageWidth / 2 - 7, y: 104 },
