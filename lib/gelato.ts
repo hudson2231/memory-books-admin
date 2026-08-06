@@ -109,18 +109,162 @@ export function getCurrency(order: Record<string, any>) {
   );
 }
 
+function normaliseCountryCode(country: unknown) {
+  const value = String(country || "").trim();
+
+  const countryMap: Record<string, string> = {
+    australia: "AU",
+    au: "AU",
+    "united states": "US",
+    usa: "US",
+    us: "US",
+    "united kingdom": "GB",
+    uk: "GB",
+    gb: "GB",
+    canada: "CA",
+    ca: "CA",
+    "new zealand": "NZ",
+    nz: "NZ",
+  };
+
+  return countryMap[value.toLowerCase()] || value;
+}
+
+function normaliseRegionForGelato(country: unknown, region: unknown) {
+  const countryCode = normaliseCountryCode(country);
+  const value = String(region || "").trim();
+
+  if (!value) return "";
+
+  const upper = value.toUpperCase();
+
+  if (countryCode === "AU") {
+    const auStates: Record<string, string> = {
+      "AUSTRALIAN CAPITAL TERRITORY": "ACT",
+      ACT: "ACT",
+      "NEW SOUTH WALES": "NSW",
+      NSW: "NSW",
+      "NORTHERN TERRITORY": "NT",
+      NT: "NT",
+      QUEENSLAND: "QLD",
+      QLD: "QLD",
+      "SOUTH AUSTRALIA": "SA",
+      SA: "SA",
+      TASMANIA: "TAS",
+      TAS: "TAS",
+      VICTORIA: "VIC",
+      VIC: "VIC",
+      "WESTERN AUSTRALIA": "WA",
+      WA: "WA",
+    };
+
+    return auStates[upper] || value;
+  }
+
+  if (countryCode === "US") {
+    const usStates: Record<string, string> = {
+      ALABAMA: "AL",
+      ALASKA: "AK",
+      ARIZONA: "AZ",
+      ARKANSAS: "AR",
+      CALIFORNIA: "CA",
+      COLORADO: "CO",
+      CONNECTICUT: "CT",
+      DELAWARE: "DE",
+      FLORIDA: "FL",
+      GEORGIA: "GA",
+      HAWAII: "HI",
+      IDAHO: "ID",
+      ILLINOIS: "IL",
+      INDIANA: "IN",
+      IOWA: "IA",
+      KANSAS: "KS",
+      KENTUCKY: "KY",
+      LOUISIANA: "LA",
+      MAINE: "ME",
+      MARYLAND: "MD",
+      MASSACHUSETTS: "MA",
+      MICHIGAN: "MI",
+      MINNESOTA: "MN",
+      MISSISSIPPI: "MS",
+      MISSOURI: "MO",
+      MONTANA: "MT",
+      NEBRASKA: "NE",
+      NEVADA: "NV",
+      "NEW HAMPSHIRE": "NH",
+      "NEW JERSEY": "NJ",
+      "NEW MEXICO": "NM",
+      "NEW YORK": "NY",
+      "NORTH CAROLINA": "NC",
+      "NORTH DAKOTA": "ND",
+      OHIO: "OH",
+      OKLAHOMA: "OK",
+      OREGON: "OR",
+      PENNSYLVANIA: "PA",
+      "RHODE ISLAND": "RI",
+      "SOUTH CAROLINA": "SC",
+      "SOUTH DAKOTA": "SD",
+      TENNESSEE: "TN",
+      TEXAS: "TX",
+      UTAH: "UT",
+      VERMONT: "VT",
+      VIRGINIA: "VA",
+      WASHINGTON: "WA",
+      "WEST VIRGINIA": "WV",
+      WISCONSIN: "WI",
+      WYOMING: "WY",
+    };
+
+    return usStates[upper] || upper;
+  }
+
+  if (countryCode === "CA") {
+    const caProvinces: Record<string, string> = {
+      ALBERTA: "AB",
+      "BRITISH COLUMBIA": "BC",
+      MANITOBA: "MB",
+      "NEW BRUNSWICK": "NB",
+      NEWFOUNDLAND: "NL",
+      "NEWFOUNDLAND AND LABRADOR": "NL",
+      "NORTHWEST TERRITORIES": "NT",
+      "NOVA SCOTIA": "NS",
+      NUNAVUT: "NU",
+      ONTARIO: "ON",
+      "PRINCE EDWARD ISLAND": "PE",
+      QUEBEC: "QC",
+      SASKATCHEWAN: "SK",
+      YUKON: "YT",
+    };
+
+    return caProvinces[upper] || upper;
+  }
+
+  return value;
+}
+
 export function getShippingAddress(order: Record<string, any>) {
   const name = splitName(order.shipping_name || order.customer_name);
 
-  const country =
+  const rawCountry =
     order.shipping_country_code ||
-    order.shipping_country ||
     order.country_code ||
+    order.shipping_country ||
     order.country;
+
+  const country = normaliseCountryCode(rawCountry);
 
   const addressLine1 = order.shipping_address1 || order.address1;
   const city = order.shipping_city || order.city;
   const postCode = order.shipping_zip || order.zip || order.postcode;
+
+  const rawState =
+    order.shipping_province_code ||
+    order.province_code ||
+    order.shipping_province ||
+    order.province ||
+    "";
+
+  const state = normaliseRegionForGelato(country, rawState);
 
   if (!country || !addressLine1 || !city || !postCode) {
     throw new Error(
@@ -134,7 +278,7 @@ export function getShippingAddress(order: Record<string, any>) {
     companyName: order.shipping_company || "",
     addressLine1,
     addressLine2: order.shipping_address2 || "",
-    state: order.shipping_province || order.province || "",
+    state,
     city,
     postCode,
     country,
@@ -142,6 +286,7 @@ export function getShippingAddress(order: Record<string, any>) {
     phone: order.shipping_phone || order.phone || "",
   };
 }
+
 
 export async function callGelatoApi(url: string, payload: Record<string, any>) {
   const response = await fetch(url, {
