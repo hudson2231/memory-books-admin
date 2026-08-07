@@ -8,7 +8,7 @@ import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const EXPORT_VERSION = "pdf-export-gelato-spread-v4";
+const EXPORT_VERSION = "pdf-export-story-gelato-v5";
 
 // Gelato template dimensions for:
 // glued-multi-page-brochures_pf_a4_pt_170-gsm-uncoated_cl_4-4_bt_glued-left_cpt_250-gsm-uncoated_ver
@@ -21,6 +21,18 @@ const A4_PAGE_HEIGHT = 858.898;
 // 200 DPI-ish for Gelato A4 with bleed, roughly 216 x 303 mm.
 const A4_EXPORT_WIDTH_PX = 1701;
 const A4_EXPORT_HEIGHT_PX = 2386;
+
+// Gelato template dimensions for Story Books:
+// photobooks-softcover_pf_210x280-mm-8x11-inch_pt_170-gsm-65lb-coated-silk_cl_4-4_ccl_4-4_bt_glued-left_ct_matt-lamination_prt_1-0_cpt_250-gsm-100-lb-cover-coated-silk_ver
+// Page 1 is a wide cover spread. Pages 2+ are 21x28cm portrait pages with bleed.
+const STORY_COVER_SPREAD_WIDTH = 1215.72;
+const STORY_COVER_SPREAD_HEIGHT = 810.709;
+const STORY_PAGE_WIDTH = 612.283;
+const STORY_PAGE_HEIGHT = 810.709;
+
+// 200 DPI-ish for Gelato 21x28cm with bleed, roughly 216 x 286 mm.
+const STORY_EXPORT_WIDTH_PX = 1701;
+const STORY_EXPORT_HEIGHT_PX = 2252;
 
 function slugify(value: string) {
   return value
@@ -68,6 +80,31 @@ function getGelatoFilePageCountForColouringBook(artworkPages: number) {
   // The uploaded PDF file has one wide cover-spread print area instead of separate front/back cover pages.
   // Example: 20 artwork pages = cover spread + grace page + 20 artwork + 19 blank backs = 41 file pages.
   return artworkPages * 2 + 1;
+}
+
+function makeEvenPageCount(value: number) {
+  return value % 2 === 0 ? value : value + 1;
+}
+
+function getStoryInternalPageCount(storyPages: number) {
+  // Story Book internals are:
+  // grace page + generated story pages + optional blank page to keep internals even.
+  // Example: 30 story pages = 1 grace + 30 story + 1 blank = 32 internal pages.
+  return makeEvenPageCount(storyPages + 1);
+}
+
+function getGelatoProductPageCountForStoryBook(storyPages: number) {
+  // Gelato product page count counts front and back cover as separate sides,
+  // even though the uploaded file uses one wide cover-spread print area.
+  // Example: 30 story pages = 32 internal pages + front/back cover = 34.
+  return getStoryInternalPageCount(storyPages) + 2;
+}
+
+function getGelatoFilePageCountForStoryBook(storyPages: number) {
+  // Uploaded PDF file pages are:
+  // one cover-spread print area + internal pages.
+  // Example: 30 story pages = 1 cover spread + 32 internal pages = 33 file pages.
+  return getStoryInternalPageCount(storyPages) + 1;
 }
 
 function cleanCaption(value: unknown) {
@@ -630,21 +667,20 @@ async function embedCoverPng(pdfDoc: PDFDocument, imagePath: string) {
   return await pdfDoc.embedPng(pngBuffer);
 }
 
-async function addColouringCoverSpreadPage(
+async function addCoverSpreadPage(
   pdfDoc: PDFDocument,
   frontCoverPath: string,
-  backCoverPath: string
+  backCoverPath: string,
+  spreadWidth: number,
+  spreadHeight: number
 ) {
-  const page = pdfDoc.addPage([
-    GELATO_COVER_SPREAD_WIDTH,
-    GELATO_COVER_SPREAD_HEIGHT,
-  ]);
+  const page = pdfDoc.addPage([spreadWidth, spreadHeight]);
 
   page.drawRectangle({
     x: 0,
     y: 0,
-    width: GELATO_COVER_SPREAD_WIDTH,
-    height: GELATO_COVER_SPREAD_HEIGHT,
+    width: spreadWidth,
+    height: spreadHeight,
     color: rgb(1, 0.968, 0.91),
   });
 
@@ -652,9 +688,9 @@ async function addColouringCoverSpreadPage(
   const frontCover = await embedCoverPng(pdfDoc, frontCoverPath);
 
   const leftPanelX = 0;
-  const leftPanelWidth = GELATO_COVER_SPREAD_WIDTH / 2;
+  const leftPanelWidth = spreadWidth / 2;
   const rightPanelX = leftPanelWidth;
-  const rightPanelWidth = GELATO_COVER_SPREAD_WIDTH - rightPanelX;
+  const rightPanelWidth = spreadWidth - rightPanelX;
 
   page.drawImage(
     backCover,
@@ -664,7 +700,7 @@ async function addColouringCoverSpreadPage(
       leftPanelX,
       0,
       leftPanelWidth,
-      GELATO_COVER_SPREAD_HEIGHT
+      spreadHeight
     )
   );
 
@@ -676,8 +712,36 @@ async function addColouringCoverSpreadPage(
       rightPanelX,
       0,
       rightPanelWidth,
-      GELATO_COVER_SPREAD_HEIGHT
+      spreadHeight
     )
+  );
+}
+
+async function addColouringCoverSpreadPage(
+  pdfDoc: PDFDocument,
+  frontCoverPath: string,
+  backCoverPath: string
+) {
+  return addCoverSpreadPage(
+    pdfDoc,
+    frontCoverPath,
+    backCoverPath,
+    GELATO_COVER_SPREAD_WIDTH,
+    GELATO_COVER_SPREAD_HEIGHT
+  );
+}
+
+async function addStoryCoverSpreadPage(
+  pdfDoc: PDFDocument,
+  frontCoverPath: string,
+  backCoverPath: string
+) {
+  return addCoverSpreadPage(
+    pdfDoc,
+    frontCoverPath,
+    backCoverPath,
+    STORY_COVER_SPREAD_WIDTH,
+    STORY_COVER_SPREAD_HEIGHT
   );
 }
 
@@ -897,21 +961,36 @@ export async function POST(
     const pageHeight = A4_PAGE_HEIGHT;
 
     if (isStoryBook) {
+      const storyPageWidth = STORY_PAGE_WIDTH;
+      const storyPageHeight = STORY_PAGE_HEIGHT;
+      const expectedStoryPages = getExpectedArtworkPages(order, images.length);
+
+      if (images.length < expectedStoryPages) {
+        return NextResponse.json(
+          {
+            error: `This story book needs ${expectedStoryPages} approved generated pages before export. Currently approved: ${images.length}.`,
+          },
+          { status: 400 }
+        );
+      }
+
       const storyFrontCoverPath = path.join(process.cwd(), "public", "covers", "story-front.png");
       const storyBackCoverPath = path.join(process.cwd(), "public", "covers", "story-back.png");
 
-      await addCoverImagePage(pdfDoc, storyFrontCoverPath, pageWidth, pageHeight);
-      addGracePage(pdfDoc, pageWidth, pageHeight, normalFont, boldFont, order);
+      await addStoryCoverSpreadPage(pdfDoc, storyFrontCoverPath, storyBackCoverPath);
+      addGracePage(pdfDoc, storyPageWidth, storyPageHeight, normalFont, boldFont, order);
 
-      for (const image of images) {
+      const storyImages = images.slice(0, expectedStoryPages);
+
+      for (const image of storyImages) {
         if (!image.generated_url) continue;
 
         await addStoryImagePage(
           pdfDoc,
           image.generated_url,
           image.page_number,
-          pageWidth,
-          pageHeight,
+          storyPageWidth,
+          storyPageHeight,
           {
             caption: cleanCaption(image.caption_text),
             captionFont,
@@ -919,11 +998,19 @@ export async function POST(
         );
       }
 
-      if ((pdfDoc.getPageCount() + 1) % 2 !== 0) {
-        addBlankPage(pdfDoc, pageWidth, pageHeight);
+      const targetInternalPageCount = getStoryInternalPageCount(expectedStoryPages);
+
+      while (pdfDoc.getPageCount() - 1 < targetInternalPageCount) {
+        addBlankPage(pdfDoc, storyPageWidth, storyPageHeight);
       }
 
-      await addCoverImagePage(pdfDoc, storyBackCoverPath, pageWidth, pageHeight);
+      const targetGelatoFilePageCount = getGelatoFilePageCountForStoryBook(expectedStoryPages);
+
+      if (pdfDoc.getPageCount() !== targetGelatoFilePageCount) {
+        throw new Error(
+          `${EXPORT_VERSION}: Story PDF file page count mismatch. Expected ${targetGelatoFilePageCount}, got ${pdfDoc.getPageCount()}.`
+        );
+      }
     } else {
       const expectedArtworkPages = getExpectedArtworkPages(order, images.length);
 
@@ -1030,7 +1117,9 @@ export async function POST(
           ? getGelatoProductPageCountForColouringBook(
               getExpectedArtworkPages(order, images.length)
             )
-          : null,
+          : getGelatoProductPageCountForStoryBook(
+              getExpectedArtworkPages(order, images.length)
+            ),
     });
   } catch (error) {
     const message =

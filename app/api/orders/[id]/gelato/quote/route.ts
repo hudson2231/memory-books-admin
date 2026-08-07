@@ -37,10 +37,6 @@ export async function POST(
 
     const productType = getProductType(order);
 
-    if (productType !== "colouring_book") {
-      throw new Error("Gelato sending is currently only enabled for Colouring Books.");
-    }
-
     const productUid = getGelatoProductUidForOrder(order);
     const pageCount = getGelatoPageCountForOrder(order);
 

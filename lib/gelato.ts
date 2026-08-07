@@ -22,7 +22,10 @@ export function getColouringBookProductUid() {
 }
 
 export function getStoryBookProductUid() {
-  return process.env.GELATO_STORY_BOOK_PRODUCT_UID || "";
+  return (
+    process.env.GELATO_STORY_BOOK_PRODUCT_UID ||
+    "photobooks-softcover_pf_210x280-mm-8x11-inch_pt_170-gsm-65lb-coated-silk_cl_4-4_ccl_4-4_bt_glued-left_ct_matt-lamination_prt_1-0_cpt_250-gsm-100-lb-cover-coated-silk_ver"
+  );
 }
 
 export function getProductType(order: Record<string, any>) {
@@ -63,9 +66,14 @@ export function getGelatoPageCountForOrder(order: Record<string, any>) {
     return artworkPages * 2 + 2;
   }
 
-  // Story Book currently uses:
-  // front cover + grace page + story artwork pages + possible blank + back cover.
-  // We are not sending Story Books to Gelato yet unless its product UID is confirmed.
+  if (productType === "story_book") {
+    // Story Book PDF file uses one wide cover-spread print area.
+    // Gelato product page count counts front/back cover as separate sides.
+    // Internals are: grace page + story pages + optional blank to keep internal pages even.
+    const internalPages = (artworkPages + 1) % 2 === 0 ? artworkPages + 1 : artworkPages + 2;
+    return internalPages + 2;
+  }
+
   return null;
 }
 

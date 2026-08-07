@@ -85,10 +85,9 @@ export default function OrderDetailPage() {
   const isColouringBook = productType === "colouring_book";
   const hasExportedPdf = order?.pdf_status === "exported" && Boolean(order?.pdf_url);
   const hasGelatoOrder = Boolean(order?.gelato_order_id);
-  const canQuoteGelato = Boolean(order && isColouringBook && hasExportedPdf && !hasGelatoOrder);
+  const canQuoteGelato = Boolean(order && hasExportedPdf && !hasGelatoOrder);
   const canSendGelato = Boolean(
     order &&
-      isColouringBook &&
       hasExportedPdf &&
       !hasGelatoOrder &&
       order.gelato_status === "quoted" &&
@@ -670,7 +669,7 @@ export default function OrderDetailPage() {
                 {exportingPdf ? "Exporting PDF..." : isStoryBook ? "Export Story Book PDF" : "Export Approved PDF"}
               </button>
 
-              {isColouringBook && (
+              {(
                 <button
                   onClick={quoteGelato}
                   disabled={!canQuoteGelato || quotingGelato || sendingGelato || exportingPdf || generating || regeneratingImageId !== null || approvingAll || deletingOrder}
@@ -680,7 +679,7 @@ export default function OrderDetailPage() {
                 </button>
               )}
 
-              {isColouringBook && (
+              {(
                 <button
                   onClick={sendToGelato}
                   disabled={!canSendGelato || quotingGelato || sendingGelato || exportingPdf || generating || regeneratingImageId !== null || approvingAll || deletingOrder}
