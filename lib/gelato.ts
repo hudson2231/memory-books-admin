@@ -69,9 +69,13 @@ export function getGelatoPageCountForOrder(order: Record<string, any>) {
   if (productType === "story_book") {
     // Story Book PDF file uses one wide cover-spread print area.
     // Gelato product page count counts front/back cover as separate sides.
-    // Internals are: grace page + story pages + optional blank to keep internal pages even.
-    const internalPages = (artworkPages + 1) % 2 === 0 ? artworkPages + 1 : artworkPages + 2;
-    return internalPages + 2;
+    // The selected 21x28cm softcover photo book requires minimum 28 product pages.
+    const naturalInternalPages =
+      (artworkPages + 1) % 2 === 0 ? artworkPages + 1 : artworkPages + 2;
+
+    const minimumInternalPages = 26;
+
+    return Math.max(naturalInternalPages, minimumInternalPages) + 2;
   }
 
   return null;

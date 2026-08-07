@@ -86,24 +86,31 @@ function makeEvenPageCount(value: number) {
   return value % 2 === 0 ? value : value + 1;
 }
 
+const STORY_GELATO_MIN_PRODUCT_PAGE_COUNT = 28;
+
 function getStoryInternalPageCount(storyPages: number) {
   // Story Book internals are:
-  // grace page + generated story pages + optional blank page to keep internals even.
-  // Example: 30 story pages = 1 grace + 30 story + 1 blank = 32 internal pages.
-  return makeEvenPageCount(storyPages + 1);
+  // grace page + generated story pages + enough blank pages to:
+  // 1. keep internals even
+  // 2. meet Gelato's minimum valid product page count of 28
+  //
+  // Example: 20 story pages = 1 grace + 20 story + 5 blanks = 26 internal pages.
+  // Product page count = 26 internal + front/back cover = 28.
+  const naturalInternalPages = makeEvenPageCount(storyPages + 1);
+  const minimumInternalPages = STORY_GELATO_MIN_PRODUCT_PAGE_COUNT - 2;
+
+  return Math.max(naturalInternalPages, minimumInternalPages);
 }
 
 function getGelatoProductPageCountForStoryBook(storyPages: number) {
   // Gelato product page count counts front and back cover as separate sides,
   // even though the uploaded file uses one wide cover-spread print area.
-  // Example: 30 story pages = 32 internal pages + front/back cover = 34.
   return getStoryInternalPageCount(storyPages) + 2;
 }
 
 function getGelatoFilePageCountForStoryBook(storyPages: number) {
   // Uploaded PDF file pages are:
   // one cover-spread print area + internal pages.
-  // Example: 30 story pages = 1 cover spread + 32 internal pages = 33 file pages.
   return getStoryInternalPageCount(storyPages) + 1;
 }
 
