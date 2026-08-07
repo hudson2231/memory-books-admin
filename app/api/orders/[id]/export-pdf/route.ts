@@ -819,15 +819,37 @@ async function makeColouringPageJpeg(inputBuffer: Buffer, pageNumber: number) {
   return outputBuffer;
 }
 
-async function makeStoryPagePng(inputBuffer: Buffer) {
-  return await sharp(inputBuffer, {
+async function makeStoryPageJpeg(inputBuffer: Buffer, pageNumber: number) {
+  const output = await sharp(inputBuffer, {
     failOn: "none",
     animated: false,
   })
     .rotate()
     .flatten({ background: "#ffffff" })
-    .png()
+    .resize({
+      width: STORY_EXPORT_WIDTH_PX,
+      height: STORY_EXPORT_HEIGHT_PX,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .jpeg({
+      quality: 82,
+      progressive: false,
+      chromaSubsampling: "4:4:4",
+    })
     .toBuffer();
+
+  const outputBuffer = Buffer.from(output);
+
+  if (outputBuffer[0] !== 0xff || outputBuffer[1] !== 0xd8) {
+    throw new Error(
+      `Sharp did not output a valid story JPEG for page ${pageNumber}. First bytes: ${outputBuffer
+        .subarray(0, 8)
+        .toString("hex")}`
+    );
+  }
+
+  return outputBuffer;
 }
 
 async function addColouringImagePage(
@@ -863,9 +885,9 @@ async function addStoryImagePage(
   }
 ) {
   const downloaded = await downloadImageBuffer(imageUrl, pageNumber);
-  const cleanPngBuffer = await makeStoryPagePng(downloaded);
+  const jpegBuffer = await makeStoryPageJpeg(downloaded, pageNumber);
 
-  const embeddedImage = await pdfDoc.embedPng(cleanPngBuffer);
+  const embeddedImage = await pdfDoc.embedJpg(jpegBuffer);
   const page = pdfDoc.addPage([pageWidth, pageHeight]);
 
   const margin = 36;
