@@ -13,6 +13,23 @@ export const FAL_COLORING_MODEL =
 export const COLORING_BOOK_PROMPT_VERSION = "seedream5_color_bold_v1";
 export const STORYBOOK_PROMPT_VERSION = "storybook_clipart_v1";
 
+const IMAGE_FETCH_TIMEOUT_MS = 45_000;
+const GEMINI_GENERATION_TIMEOUT_MS = 180_000;
+
+function createTimeoutSignal(timeoutMs: number) {
+  const abortSignal = AbortSignal as typeof AbortSignal & {
+    timeout?: (milliseconds: number) => AbortSignal;
+  };
+
+  if (typeof abortSignal.timeout === "function") {
+    return abortSignal.timeout(timeoutMs);
+  }
+
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), timeoutMs);
+  return controller.signal;
+}
+
 export function getProductType(order: Record<string, any>) {
   return order.product_type === "story_book" ? "story_book" : "colouring_book";
 }
@@ -78,7 +95,9 @@ export function getAspectRatioForImage(image: Record<string, any>) {
 }
 
 async function downloadUrlToBuffer(url: string) {
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    signal: createTimeoutSignal(IMAGE_FETCH_TIMEOUT_MS),
+  });
 
   if (!response.ok) {
     throw new Error(`Failed to download image: ${response.status}`);
@@ -141,7 +160,9 @@ export async function generateStorybookWithGemini(params: {
     throw new Error("Missing GEMINI_API_KEY.");
   }
 
-  const originalResponse = await fetch(params.originalUrl);
+  const originalResponse = await fetch(params.originalUrl, {
+    signal: createTimeoutSignal(IMAGE_FETCH_TIMEOUT_MS),
+  });
 
   if (!originalResponse.ok) {
     throw new Error("Failed to download original image.");
@@ -154,7 +175,9 @@ export async function generateStorybookWithGemini(params: {
 
   if (params.previousGeneratedUrl) {
     try {
-      const previousResponse = await fetch(params.previousGeneratedUrl);
+      const previousResponse = await fetch(params.previousGeneratedUrl, {
+        signal: createTimeoutSignal(IMAGE_FETCH_TIMEOUT_MS),
+      });
 
       if (previousResponse.ok) {
         const previousArrayBuffer = await previousResponse.arrayBuffer();
@@ -179,6 +202,7 @@ export async function generateStorybookWithGemini(params: {
       headers: {
         "Content-Type": "application/json",
       },
+      signal: createTimeoutSignal(GEMINI_GENERATION_TIMEOUT_MS),
       body: JSON.stringify({
         contents: [
           {

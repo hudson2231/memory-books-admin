@@ -11,11 +11,15 @@ import {
 } from "../../../../../lib/image-generation";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
-// Keep this at 1 for Vercel reliability.
-// The frontend loops through batches, so Generate All still processes the whole order,
-// but each API call is less likely to timeout.
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
+// Controlled backend batch sizes.
+// The frontend loops through batches until the order is complete.
+// Story Books use Gemini, so keep this lower than colouring books to avoid provider/rate-limit spikes.
 const COLOURING_MAX_IMAGES_PER_REQUEST = 5;
-const STORY_MAX_IMAGES_PER_REQUEST = 1;
+const STORY_MAX_IMAGES_PER_REQUEST = 3;
 
 function getGenerationInputUrl(image: Record<string, any>) {
   return (
@@ -103,11 +107,16 @@ export async function POST(
   const orderSlug = slugify(order.customer_name || "order");
   const shortOrderId = order.id.slice(0, 8);
   const orderFolder = `${orderSlug}-${shortOrderId}`;
-  const generatedResults = [];
 
-  for (const image of selectedImages) {
+  async function generateOneImage(image: Record<string, any>) {
     try {
       console.log(`[generate] page=${image.page_number} image=${image.id}`);
+
+      const inputUrl = getGenerationInputUrl(image);
+
+      if (!inputUrl || typeof inputUrl !== "string") {
+        throw new Error(`No usable input image URL found for page ${image.page_number}.`);
+      }
 
       await supabaseAdmin
         .from("order_images")
@@ -121,12 +130,12 @@ export async function POST(
         productType === "story_book"
           ? await generateStorybookWithGemini({
               promptText,
-              originalUrl: getGenerationInputUrl(image),
-              mimeType: image.mime_type || getMimeTypeFromUrl(getGenerationInputUrl(image)),
+              originalUrl: inputUrl,
+              mimeType: image.mime_type || getMimeTypeFromUrl(inputUrl),
             })
           : await generateColoringWithFal({
               promptText,
-              originalUrl: getGenerationInputUrl(image),
+              originalUrl: inputUrl,
               aspectRatio: "3:4",
             });
 
@@ -154,15 +163,15 @@ export async function POST(
 
       if (updateError) throw new Error(updateError.message);
 
-      generatedResults.push(updatedImage);
       console.log(`[generate] success page=${image.page_number}`);
+      return updatedImage;
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown generation error.";
 
       console.error(`[generate] failed page=${image.page_number}: ${message}`);
 
-      await supabaseAdmin
+      const { error: failedUpdateError } = await supabaseAdmin
         .from("order_images")
         .update({
           status: "failed",
@@ -170,14 +179,24 @@ export async function POST(
         })
         .eq("id", image.id);
 
-      generatedResults.push({
+      if (failedUpdateError) {
+        console.error(
+          `[generate] failed to save failure state page=${image.page_number}: ${failedUpdateError.message}`
+        );
+      }
+
+      return {
         id: image.id,
         page_number: image.page_number,
         status: "failed",
         error_message: message,
-      });
+      };
     }
   }
+
+  const generatedResults = await Promise.all(
+    selectedImages.map((image) => generateOneImage(image))
+  );
 
   const { data: refreshedImages, error: refreshError } = await supabaseAdmin
     .from("order_images")
