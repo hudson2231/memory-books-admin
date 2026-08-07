@@ -87,31 +87,39 @@ function makeEvenPageCount(value: number) {
 }
 
 const STORY_GELATO_MIN_PRODUCT_PAGE_COUNT = 28;
+const STORY_GELATO_MIN_FILE_PAGE_COUNT = 31;
 
 function getStoryInternalPageCount(storyPages: number) {
   // Story Book internals are:
   // grace page + generated story pages + enough blank pages to:
   // 1. keep internals even
   // 2. meet Gelato's minimum valid product page count of 28
+  // 3. meet Gelato's required minimum PDF file page count of 31
   //
-  // Example: 20 story pages = 1 grace + 20 story + 5 blanks = 26 internal pages.
-  // Product page count = 26 internal + front/back cover = 28.
+  // For a 20-page Story Book:
+  // 1 cover spread + 1 grace + 20 story pages + 9 blanks = 31 PDF file pages.
   const naturalInternalPages = makeEvenPageCount(storyPages + 1);
-  const minimumInternalPages = STORY_GELATO_MIN_PRODUCT_PAGE_COUNT - 2;
+  const minimumInternalPagesFromProduct = STORY_GELATO_MIN_PRODUCT_PAGE_COUNT - 2;
+  const minimumInternalPagesFromFile = STORY_GELATO_MIN_FILE_PAGE_COUNT - 1;
 
-  return Math.max(naturalInternalPages, minimumInternalPages);
+  return Math.max(
+    naturalInternalPages,
+    minimumInternalPagesFromProduct,
+    minimumInternalPagesFromFile
+  );
 }
 
 function getGelatoProductPageCountForStoryBook(storyPages: number) {
-  // Gelato product page count counts front and back cover as separate sides,
-  // even though the uploaded file uses one wide cover-spread print area.
-  return getStoryInternalPageCount(storyPages) + 2;
+  // Gelato product page count must stay on the valid product value.
+  // For the smallest Story Book, Gelato accepts product pageCount 28.
+  const internalPages = getStoryInternalPageCount(storyPages);
+  return Math.max(STORY_GELATO_MIN_PRODUCT_PAGE_COUNT, internalPages - 2);
 }
 
 function getGelatoFilePageCountForStoryBook(storyPages: number) {
   // Uploaded PDF file pages are:
   // one cover-spread print area + internal pages.
-  return getStoryInternalPageCount(storyPages) + 1;
+  return Math.max(STORY_GELATO_MIN_FILE_PAGE_COUNT, getStoryInternalPageCount(storyPages) + 1);
 }
 
 function cleanCaption(value: unknown) {
