@@ -22,6 +22,10 @@ type Order = {
   variant_title?: string | null;
   financial_status?: string | null;
   pod_status?: string | null;
+  gelato_order_id?: string | null;
+  sent_to_gelato_at?: string | null;
+  gelato_status?: string | null;
+  gelato_error?: string | null;
   image_count: number;
   generated_count: number;
   approved_count: number;
@@ -41,6 +45,9 @@ type OrderTab =
   | "failed";
 
 type SortMode = "newest" | "oldest";
+type DashboardTheme = "dark" | "light";
+
+const DASHBOARD_THEME_STORAGE_KEY = "memory-books-admin-dashboard-theme";
 
 const ORDER_TABS: { key: OrderTab; label: string; description: string }[] = [
   {
@@ -270,6 +277,20 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [message, setMessage] = useState("");
+  const [dashboardTheme, setDashboardTheme] = useState<DashboardTheme>("dark");
+  const [testToolsOpen, setTestToolsOpen] = useState(false);
+
+  useEffect(() => {
+    const storedTheme = window.localStorage.getItem(DASHBOARD_THEME_STORAGE_KEY);
+    if (storedTheme === "light" || storedTheme === "dark") {
+      setDashboardTheme(storedTheme);
+    }
+  }, []);
+
+  function chooseDashboardTheme(theme: DashboardTheme) {
+    setDashboardTheme(theme);
+    window.localStorage.setItem(DASHBOARD_THEME_STORAGE_KEY, theme);
+  }
 
   async function logout() {
     await fetch("/api/admin/logout", {
@@ -329,6 +350,100 @@ export default function Home() {
     }
 
     return counts;
+  }, [orders]);
+
+  const productionOverview = useMemo(() => {
+    const now = Date.now();
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+
+    return orders.reduce(
+      (summary, order) => {
+        const status = normalize(order.status);
+        const pdfStatus = normalize(order.pdf_status);
+        const podStatus = normalize(order.pod_status);
+        const gelatoStatus = normalize(order.gelato_status);
+        const hasGelatoError = Boolean(order.gelato_error?.trim());
+        const hasGelatoStatusError =
+          gelatoStatus.includes("failed") || gelatoStatus.includes("error");
+        const hasExplicitError =
+          order.failed_count > 0 ||
+          status.includes("failed") ||
+          status.includes("error") ||
+          pdfStatus.includes("failed") ||
+          pdfStatus.includes("error") ||
+          podStatus.includes("failed") ||
+          podStatus.includes("error") ||
+          hasGelatoStatusError ||
+          hasGelatoError;
+        const hasExportedPdf = pdfStatus === "exported" || Boolean(order.pdf_url);
+        const hasBeenSentToGelato = Boolean(
+          order.gelato_order_id || order.sent_to_gelato_at
+        );
+
+        if (hasExplicitError) summary.needsAttention += 1;
+        summary.failedPages += Number(order.failed_count || 0);
+
+        if (
+          order.image_count > 0 &&
+          order.generated_count === 0 &&
+          order.generating_count === 0 &&
+          order.failed_count === 0 &&
+          !hasExportedPdf &&
+          !hasBeenSentToGelato
+        ) {
+          summary.notGeneratedYet += 1;
+        }
+
+        if (
+          order.image_count > 0 &&
+          order.generated_count === order.image_count &&
+          order.approved_count < order.image_count &&
+          order.generating_count === 0 &&
+          order.failed_count === 0
+        ) {
+          summary.awaitingApproval += 1;
+        }
+
+        const isReadyForPdf =
+          order.image_count > 0 &&
+          order.generated_count === order.image_count &&
+          order.approved_count === order.image_count &&
+          order.failed_count === 0 &&
+          pdfStatus !== "exported" &&
+          !order.pdf_url;
+
+        if (isReadyForPdf) summary.readyForPdf += 1;
+
+        if (
+          hasExportedPdf &&
+          !hasBeenSentToGelato &&
+          !hasGelatoError &&
+          !hasGelatoStatusError
+        ) {
+          summary.readyForGelato += 1;
+        }
+
+        const createdAt = new Date(order.created_at).getTime();
+        if (
+          Number.isFinite(createdAt) &&
+          createdAt >= sevenDaysAgo &&
+          createdAt <= now &&
+          !hasBeenSentToGelato
+        ) {
+          summary.newActiveOrders += 1;
+        }
+        return summary;
+      },
+      {
+        needsAttention: 0,
+        failedPages: 0,
+        notGeneratedYet: 0,
+        awaitingApproval: 0,
+        readyForPdf: 0,
+        readyForGelato: 0,
+        newActiveOrders: 0,
+      }
+    );
   }, [orders]);
 
   const visibleOrders = useMemo(() => {
@@ -547,7 +662,13 @@ export default function Home() {
     "Manage orders.";
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-white">
+    <main
+      className={`min-h-screen transition-colors ${
+        dashboardTheme === "dark"
+          ? "bg-neutral-950 text-white"
+          : "bg-stone-100 text-stone-950 [&_.bg-neutral-950]:!bg-stone-100 [&_.bg-neutral-900]:!bg-stone-50 [&_.bg-neutral-800]:!bg-stone-200 [&_.text-white]:!text-stone-950 [&_.text-neutral-100]:!text-stone-900 [&_.text-neutral-200]:!text-stone-800 [&_.text-neutral-300]:!text-stone-700 [&_.text-neutral-400]:!text-stone-600 [&_.text-neutral-500]:!text-stone-500 [&_.border-neutral-900]:!border-stone-200 [&_.border-neutral-800]:!border-stone-200 [&_.border-neutral-700]:!border-stone-300 [&_.bg-black]:!bg-stone-800 [&_.bg-black]:!text-white"
+      }`}
+    >
       <div className="mx-auto max-w-7xl px-6 py-10">
         <div className="mb-10">
           <p className="text-sm uppercase tracking-[0.3em] text-neutral-400">
@@ -570,6 +691,22 @@ export default function Home() {
               <Link href="/profit" className="rounded-xl border border-neutral-700 px-4 py-2 text-neutral-300 hover:border-white hover:text-white">
                 Profit Dashboard
               </Link>
+              <div className="flex rounded-xl border border-neutral-700 bg-neutral-900 p-1">
+                {(["light", "dark"] as DashboardTheme[]).map((theme) => (
+                  <button
+                    key={theme}
+                    type="button"
+                    onClick={() => chooseDashboardTheme(theme)}
+                    className={`rounded-lg px-3 py-1 text-xs font-medium capitalize transition ${
+                      dashboardTheme === theme
+                        ? "bg-white text-black"
+                        : "text-neutral-400 hover:text-white"
+                    }`}
+                  >
+                    {theme}
+                  </button>
+                ))}
+              </div>
               <button
                 onClick={logout}
                 className="rounded-xl border border-neutral-700 px-4 py-2 text-neutral-300 hover:border-white hover:text-white"
@@ -580,12 +717,85 @@ export default function Home() {
           </div>
         </div>
 
-        <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
-          <h2 className="text-2xl font-medium">Create Test Order</h2>
-          <p className="mt-2 text-neutral-400">
-            This test form creates an order and uploads customer photos to
-            Supabase storage.
-          </p>
+        <div className="flex flex-col">
+          <section className="order-1">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-sm uppercase tracking-[0.25em] text-neutral-500">
+                  Live production
+                </p>
+                <h2 className="mt-2 text-2xl font-medium">Production Overview</h2>
+              </div>
+              <p className="text-sm text-neutral-500">
+                {loadingOrders ? "Refreshing..." : "Updates every 5 seconds"}
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              {[
+                {
+                  label: "Needs Attention",
+                  value: productionOverview.needsAttention,
+                  supporting: `${productionOverview.failedPages} failed page${productionOverview.failedPages === 1 ? "" : "s"}`,
+                  urgent: true,
+                },
+                { label: "Not Generated Yet", value: productionOverview.notGeneratedYet },
+                { label: "Awaiting Approval", value: productionOverview.awaitingApproval },
+                { label: "Ready for PDF", value: productionOverview.readyForPdf },
+                { label: "Ready for Gelato", value: productionOverview.readyForGelato },
+                { label: "New Active Orders", value: productionOverview.newActiveOrders, supporting: "Created in the last 7 days" },
+              ].map((card) => (
+                <div
+                  key={card.label}
+                  className={`rounded-2xl border p-5 ${
+                    card.urgent
+                      ? "border-red-900 bg-red-950/30"
+                      : "border-neutral-800 bg-neutral-900"
+                  }`}
+                >
+                  <p className={card.urgent ? "text-sm text-red-300" : "text-sm text-neutral-500"}>
+                    {card.label}
+                  </p>
+                  <p className={`mt-3 text-3xl font-semibold ${card.urgent ? "text-red-200" : ""}`}>
+                    {card.value}
+                  </p>
+                  {card.supporting && (
+                    <p className={card.urgent ? "mt-2 text-xs text-red-300/80" : "mt-2 text-xs text-neutral-500"}>
+                      {card.supporting}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
+        <section className="order-3 mt-8 rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.25em] text-neutral-500">
+                Non-production utilities
+              </p>
+              <h2 className="mt-2 text-2xl font-medium">Test Tools</h2>
+              <p className="mt-2 text-neutral-400">
+                Create controlled test orders without distracting from the production queue.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setTestToolsOpen((current) => !current)}
+              aria-expanded={testToolsOpen}
+              className="shrink-0 rounded-xl border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-white hover:text-white"
+            >
+              {testToolsOpen ? "Hide Test Tools" : "Open Test Tools"}
+            </button>
+          </div>
+
+          {testToolsOpen && (
+            <div className="mt-6 border-t border-neutral-800 pt-6">
+              <h3 className="text-xl font-medium">Create Test Order</h3>
+              <p className="mt-2 text-neutral-400">
+                This test form creates an order and uploads customer photos to
+                Supabase storage.
+              </p>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <div>
@@ -760,13 +970,18 @@ export default function Home() {
             {loading ? "Creating..." : "Create Test Order"}
           </button>
 
-          {message && <p className="mt-4 text-sm text-neutral-300">{message}</p>}
+              {message && <p className="mt-4 text-sm text-neutral-300">{message}</p>}
+            </div>
+          )}
         </section>
 
-        <section className="mt-8 rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+        <section className="order-2 mt-8 rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
-              <h2 className="text-2xl font-medium">Orders</h2>
+              <p className="text-sm uppercase tracking-[0.25em] text-neutral-500">
+                Primary workspace
+              </p>
+              <h2 className="mt-2 text-2xl font-medium">Order Queue</h2>
               <p className="mt-2 text-neutral-400">
                 {activeDescription}
               </p>
@@ -853,10 +1068,26 @@ export default function Home() {
                       return (
                         <tr
                           key={order.id}
-                          className="transition hover:bg-neutral-900"
+                          className={`transition ${
+                            order.failed_count > 0
+                              ? dashboardTheme === "light"
+                                ? "border-l-2 border-red-400 bg-red-50 hover:bg-red-100"
+                                : "border-l-2 border-red-700 bg-red-950/20 hover:bg-red-950/30"
+                              : "hover:bg-neutral-900"
+                          }`}
                         >
                           <td className="px-5 py-4">
                             <div className="flex items-center gap-3">
+                              {order.failed_count > 0 && (
+                                <span
+                                  role="img"
+                                  aria-label="Order has failed pages"
+                                  title="Order has failed pages"
+                                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-600 text-xs font-bold !text-white"
+                                >
+                                  !
+                                </span>
+                              )}
                               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-neutral-800 text-xs font-semibold text-white">
                                 {getInitials(order.customer_name)}
                               </div>
@@ -921,6 +1152,7 @@ export default function Home() {
             )}
           </div>
         </section>
+        </div>
       </div>
     </main>
   );
