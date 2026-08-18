@@ -563,12 +563,20 @@ export default function Home() {
               </p>
             </div>
 
-            <button
-              onClick={logout}
-              className="w-fit rounded-xl border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-white hover:text-white"
-            >
-              Logout
-            </button>
+            <div className="flex flex-wrap gap-2 text-sm">
+              <Link href="/" className="rounded-xl border border-white bg-white px-4 py-2 text-black">
+                Orders
+              </Link>
+              <Link href="/profit" className="rounded-xl border border-neutral-700 px-4 py-2 text-neutral-300 hover:border-white hover:text-white">
+                Profit Dashboard
+              </Link>
+              <button
+                onClick={logout}
+                className="rounded-xl border border-neutral-700 px-4 py-2 text-neutral-300 hover:border-white hover:text-white"
+              >
+                Logout
+              </button>
+            </div>
           </div>
         </div>
 

@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import {
+  calculateCostEstimate,
+  formatAmount,
+} from "../../../lib/cost-estimates";
 
 type Order = {
   id: string;
@@ -25,6 +29,10 @@ type Order = {
   gelato_tracking_url: string | null;
   gelato_error: string | null;
   sent_to_gelato_at: string | null;
+  total_price: string | number | null;
+  subtotal_price: string | number | null;
+  currency: string | null;
+  quantity: number | null;
 };
 
 type OrderImage = {
@@ -54,7 +62,6 @@ type OrderImage = {
   }> | null;
 };
 
-
 export default function OrderDetailPage() {
   const params = useParams();
   const orderId = params.id as string;
@@ -79,6 +86,31 @@ export default function OrderDetailPage() {
   const generatedCount = images.filter((image) => image.generated_url).length;
   const approvedCount = images.filter((image) => image.approved).length;
   const failedCount = images.filter((image) => image.status === "failed").length;
+  const regenerationCount = images.reduce(
+    (total, image) => total + (image.regeneration_history?.length || 0),
+    0
+  );
+  const estimatedAiAttempts = generatedCount + regenerationCount;
+  const costEstimate = calculateCostEstimate({
+    totalPrice: order?.total_price,
+    subtotalPrice: order?.subtotal_price,
+    orderCurrency: order?.currency,
+    gelatoQuoteTotal: order?.gelato_quote_total,
+    gelatoCurrency: order?.gelato_quote_currency,
+    estimatedAiAttempts,
+  });
+  const {
+    revenue,
+    revenueSource,
+    orderCurrency,
+    gelatoCost,
+    gelatoCurrency,
+    estimatedAiCost,
+    estimatedPaymentFee,
+    currenciesCompatible,
+    estimatedProfit,
+    estimatedMargin,
+  } = costEstimate;
   const productType = order?.product_type === "story_book" ? "story_book" : "colouring_book";
   const isStoryBook = productType === "story_book";
   const productLabel = isStoryBook ? "Story Book" : "Colouring Book";
@@ -571,9 +603,14 @@ export default function OrderDetailPage() {
     <main className="min-h-screen bg-neutral-950 text-white">
       <div className="mx-auto max-w-7xl px-6 py-10">
         <div className="mb-8">
-          <Link href="/" className="text-sm text-neutral-400 hover:text-white">
-            ← Back to dashboard
-          </Link>
+          <div className="flex gap-4 text-sm">
+            <Link href="/" className="text-neutral-400 hover:text-white">
+              ← Orders
+            </Link>
+            <Link href="/profit" className="text-neutral-400 hover:text-white">
+              Profit Dashboard
+            </Link>
+          </div>
 
           <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
@@ -634,6 +671,93 @@ export default function OrderDetailPage() {
             </div>
           </div>
         </div>
+
+        <section className="mb-8 rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+          <div>
+            <p className="text-sm uppercase tracking-[0.3em] text-neutral-500">
+              Stage 1 estimate
+            </p>
+            <h2 className="mt-2 text-2xl font-medium">Estimated Cost &amp; Profit</h2>
+            <p className="mt-2 text-sm text-neutral-400">
+              Read-only estimates based on the order data currently available.
+            </p>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+              <p className="text-sm text-neutral-500">Revenue</p>
+              <p className="mt-2 text-lg font-medium">
+                {revenue === null
+                  ? "Not available yet"
+                  : formatAmount(revenue, orderCurrency)}
+              </p>
+              {revenue !== null && (
+                <p className="mt-1 text-xs text-neutral-500">
+                  {revenueSource === "total" ? "Total price" : "Subtotal price"}
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+              <p className="text-sm text-neutral-500">Gelato cost</p>
+              <p className="mt-2 text-lg font-medium">
+                {gelatoCost === null
+                  ? "Not quoted yet"
+                  : formatAmount(gelatoCost, gelatoCurrency)}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+              <p className="text-sm text-neutral-500">Estimated AI cost</p>
+              <p className="mt-2 text-lg font-medium">
+                {formatAmount(estimatedAiCost, orderCurrency)}
+              </p>
+              <p className="mt-1 text-xs text-neutral-500">
+                {estimatedAiAttempts} attempt(s): {generatedCount} generated + {regenerationCount} regenerated
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+              <p className="text-sm text-neutral-500">Estimated payment fee</p>
+              <p className="mt-2 text-lg font-medium">
+                {estimatedPaymentFee === null
+                  ? "Not available yet"
+                  : formatAmount(estimatedPaymentFee, orderCurrency)}
+              </p>
+              <p className="mt-1 text-xs text-neutral-500">2.9% + 0.30 estimate</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-green-950 bg-green-950/20 p-4">
+              <p className="text-sm text-green-400">Estimated profit</p>
+              <p className="mt-2 text-2xl font-semibold text-green-300">
+                {estimatedProfit === null
+                  ? gelatoCost === null
+                    ? "Not quoted yet"
+                    : "Not available yet"
+                  : formatAmount(estimatedProfit, orderCurrency)}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+              <p className="text-sm text-neutral-500">Estimated margin</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {estimatedMargin === null
+                  ? gelatoCost === null
+                    ? "Not quoted yet"
+                    : "Not available yet"
+                  : `${estimatedMargin.toFixed(1)}%`}
+              </p>
+            </div>
+          </div>
+
+          {revenue !== null && gelatoCost !== null && !currenciesCompatible && (
+            <p className="mt-4 text-sm text-amber-300">
+              Profit is unavailable because the order and Gelato quote currencies are missing or do not match.
+            </p>
+          )}
+        </section>
 
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
