@@ -4,11 +4,15 @@ import sharp from "sharp";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
+import {
+  getColouringBookPagePlan,
+  getStoryBookPagePlan,
+} from "../../../../../lib/book-page-layout";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const EXPORT_VERSION = "pdf-export-story-gelato-v5";
+const EXPORT_VERSION = "pdf-export-story-wrap-v7";
 
 // Gelato template dimensions for:
 // glued-multi-page-brochures_pf_a4_pt_170-gsm-uncoated_cl_4-4_bt_glued-left_cpt_250-gsm-uncoated_ver
@@ -70,57 +74,6 @@ function getExpectedArtworkPages(order: Record<string, any>, fallback: number) {
   return fallback;
 }
 
-function getGelatoProductPageCountForColouringBook(artworkPages: number) {
-  // Gelato product page count still includes front cover + back cover as separate sides.
-  // Example: 20 artwork pages = front cover + grace page + 20 artwork + 19 blank backs + back cover = 42.
-  return artworkPages * 2 + 2;
-}
-
-function getGelatoFilePageCountForColouringBook(artworkPages: number) {
-  // The uploaded PDF file has one wide cover-spread print area instead of separate front/back cover pages.
-  // Example: 20 artwork pages = cover spread + grace page + 20 artwork + 19 blank backs = 41 file pages.
-  return artworkPages * 2 + 1;
-}
-
-function makeEvenPageCount(value: number) {
-  return value % 2 === 0 ? value : value + 1;
-}
-
-const STORY_GELATO_MIN_PRODUCT_PAGE_COUNT = 28;
-const STORY_GELATO_MIN_FILE_PAGE_COUNT = 31;
-
-function getStoryInternalPageCount(storyPages: number) {
-  // Story Book internals are:
-  // grace page + generated story pages + enough blank pages to:
-  // 1. keep internals even
-  // 2. meet Gelato's minimum valid product page count of 28
-  // 3. meet Gelato's required minimum PDF file page count of 31
-  //
-  // For a 20-page Story Book:
-  // 1 cover spread + 1 grace + 20 story pages + 9 blanks = 31 PDF file pages.
-  const naturalInternalPages = makeEvenPageCount(storyPages + 1);
-  const minimumInternalPagesFromProduct = STORY_GELATO_MIN_PRODUCT_PAGE_COUNT - 2;
-  const minimumInternalPagesFromFile = STORY_GELATO_MIN_FILE_PAGE_COUNT - 1;
-
-  return Math.max(
-    naturalInternalPages,
-    minimumInternalPagesFromProduct,
-    minimumInternalPagesFromFile
-  );
-}
-
-function getGelatoProductPageCountForStoryBook(storyPages: number) {
-  // Gelato product page count must stay on the valid product value.
-  // For the smallest Story Book, Gelato accepts product pageCount 28.
-  const internalPages = getStoryInternalPageCount(storyPages);
-  return Math.max(STORY_GELATO_MIN_PRODUCT_PAGE_COUNT, internalPages - 2);
-}
-
-function getGelatoFilePageCountForStoryBook(storyPages: number) {
-  // Uploaded PDF file pages are:
-  // one cover-spread print area + internal pages.
-  return Math.max(STORY_GELATO_MIN_FILE_PAGE_COUNT, getStoryInternalPageCount(storyPages) + 1);
-}
 
 function cleanCaption(value: unknown) {
   if (typeof value !== "string") return "";
@@ -748,16 +701,23 @@ async function addColouringCoverSpreadPage(
 
 async function addStoryCoverSpreadPage(
   pdfDoc: PDFDocument,
-  frontCoverPath: string,
-  backCoverPath: string
+  coverWrapPath: string
 ) {
-  return addCoverSpreadPage(
-    pdfDoc,
-    frontCoverPath,
-    backCoverPath,
+  const page = pdfDoc.addPage([
     STORY_COVER_SPREAD_WIDTH,
-    STORY_COVER_SPREAD_HEIGHT
-  );
+    STORY_COVER_SPREAD_HEIGHT,
+  ]);
+  const coverWrap = await embedCoverPng(pdfDoc, coverWrapPath);
+
+  // The approved source is already the complete 428.879 x 286 mm wrap.
+  // Map it directly to the matching Gelato page box so it is not split into
+  // panels, offset, cropped, or resized to an interior-page format.
+  page.drawImage(coverWrap, {
+    x: 0,
+    y: 0,
+    width: STORY_COVER_SPREAD_WIDTH,
+    height: STORY_COVER_SPREAD_HEIGHT,
+  });
 }
 
 async function downloadImageBuffer(imageUrl: string, pageNumber: number) {
@@ -1001,6 +961,7 @@ export async function POST(
       const storyPageWidth = STORY_PAGE_WIDTH;
       const storyPageHeight = STORY_PAGE_HEIGHT;
       const expectedStoryPages = getExpectedArtworkPages(order, images.length);
+      const storyPagePlan = getStoryBookPagePlan(expectedStoryPages);
 
       if (images.length < expectedStoryPages) {
         return NextResponse.json(
@@ -1011,11 +972,17 @@ export async function POST(
         );
       }
 
-      const storyFrontCoverPath = path.join(process.cwd(), "public", "covers", "story-front.png");
-      const storyBackCoverPath = path.join(process.cwd(), "public", "covers", "story-back.png");
+      const storyCoverWrapPath = path.join(
+        process.cwd(),
+        "public",
+        "covers",
+        "story-cover-wrap-v2-300dpi.png"
+      );
 
-      await addStoryCoverSpreadPage(pdfDoc, storyFrontCoverPath, storyBackCoverPath);
+      await addStoryCoverSpreadPage(pdfDoc, storyCoverWrapPath);
+      addBlankPage(pdfDoc, storyPageWidth, storyPageHeight);
       addGracePage(pdfDoc, storyPageWidth, storyPageHeight, normalFont, boldFont, order);
+      addBlankPage(pdfDoc, storyPageWidth, storyPageHeight);
 
       const storyImages = images.slice(0, expectedStoryPages);
 
@@ -1035,21 +1002,20 @@ export async function POST(
         );
       }
 
-      const targetInternalPageCount = getStoryInternalPageCount(expectedStoryPages);
-
-      while (pdfDoc.getPageCount() - 1 < targetInternalPageCount) {
+      while (pdfDoc.getPageCount() < storyPagePlan.filePageCount - 1) {
         addBlankPage(pdfDoc, storyPageWidth, storyPageHeight);
       }
 
-      const targetGelatoFilePageCount = getGelatoFilePageCountForStoryBook(expectedStoryPages);
+      addBlankPage(pdfDoc, storyPageWidth, storyPageHeight);
 
-      if (pdfDoc.getPageCount() !== targetGelatoFilePageCount) {
+      if (pdfDoc.getPageCount() !== storyPagePlan.filePageCount) {
         throw new Error(
-          `${EXPORT_VERSION}: Story PDF file page count mismatch. Expected ${targetGelatoFilePageCount}, got ${pdfDoc.getPageCount()}.`
+          `${EXPORT_VERSION}: Story PDF file page count mismatch. Expected ${storyPagePlan.filePageCount}, got ${pdfDoc.getPageCount()}.`
         );
       }
     } else {
       const expectedArtworkPages = getExpectedArtworkPages(order, images.length);
+      const colouringPagePlan = getColouringBookPagePlan(expectedArtworkPages);
 
       if (images.length < expectedArtworkPages) {
         return NextResponse.json(
@@ -1064,11 +1030,13 @@ export async function POST(
       const backCoverPath = path.join(process.cwd(), "public", "covers", "colouring-back.png");
 
       await addColouringCoverSpreadPage(pdfDoc, frontCoverPath, backCoverPath);
+      addBlankPage(pdfDoc, pageWidth, pageHeight);
       addGracePage(pdfDoc, pageWidth, pageHeight, normalFont, boldFont, order);
+      addBlankPage(pdfDoc, pageWidth, pageHeight);
 
       const colouringImages = images.slice(0, expectedArtworkPages);
 
-      for (const [index, image] of colouringImages.entries()) {
+      for (const image of colouringImages) {
         if (!image.generated_url) continue;
 
         try {
@@ -1088,16 +1056,14 @@ export async function POST(
           );
         }
 
-        if (index < colouringImages.length - 1) {
-          addBlankPage(pdfDoc, pageWidth, pageHeight);
-        }
+        addBlankPage(pdfDoc, pageWidth, pageHeight);
       }
 
-      const targetGelatoFilePageCount = getGelatoFilePageCountForColouringBook(expectedArtworkPages);
+      addBlankPage(pdfDoc, pageWidth, pageHeight);
 
-      if (pdfDoc.getPageCount() !== targetGelatoFilePageCount) {
+      if (pdfDoc.getPageCount() !== colouringPagePlan.filePageCount) {
         throw new Error(
-          `${EXPORT_VERSION}: PDF file page count mismatch. Expected ${targetGelatoFilePageCount}, got ${pdfDoc.getPageCount()}.`
+          `${EXPORT_VERSION}: PDF file page count mismatch. Expected ${colouringPagePlan.filePageCount}, got ${pdfDoc.getPageCount()}.`
         );
       }
     }
@@ -1151,12 +1117,12 @@ export async function POST(
       exported_pages: exportedPages,
       gelato_page_count:
         productType === "colouring_book"
-          ? getGelatoProductPageCountForColouringBook(
+          ? getColouringBookPagePlan(
               getExpectedArtworkPages(order, images.length)
-            )
-          : getGelatoProductPageCountForStoryBook(
+            ).productPageCount
+          : getStoryBookPagePlan(
               getExpectedArtworkPages(order, images.length)
-            ),
+            ).productPageCount,
     });
   } catch (error) {
     const message =

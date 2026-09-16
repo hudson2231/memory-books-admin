@@ -1,3 +1,8 @@
+import {
+  getColouringBookPagePlan,
+  getStoryBookPagePlan,
+} from "./book-page-layout";
+
 export const GELATO_QUOTE_URL = "https://order.gelatoapis.com/v3/orders:quote";
 export const GELATO_CREATE_ORDER_URL = "https://order.gelatoapis.com/v4/orders";
 
@@ -60,22 +65,11 @@ export function getGelatoPageCountForOrder(order: Record<string, any>) {
   const artworkPages = getExpectedArtworkPages(order, 20);
 
   if (productType === "colouring_book") {
-    // Gelato product page count includes front cover + back cover as separate sides,
-    // even though the uploaded file uses one wide cover-spread print area.
-    // Example: 20 artwork pages = front cover + grace page + 20 artwork + 19 blank backs + back cover = 42.
-    return artworkPages * 2 + 2;
+    return getColouringBookPagePlan(artworkPages).productPageCount;
   }
 
   if (productType === "story_book") {
-    // Story Book PDF file uses one wide cover-spread print area.
-    // Gelato product page count counts front/back cover as separate sides.
-    // The selected 21x28cm softcover photo book requires minimum 28 product pages.
-    const naturalInternalPages =
-      (artworkPages + 1) % 2 === 0 ? artworkPages + 1 : artworkPages + 2;
-
-    const minimumInternalPages = 26;
-
-    return Math.max(naturalInternalPages, minimumInternalPages) + 2;
+    return getStoryBookPagePlan(artworkPages).productPageCount;
   }
 
   return null;
