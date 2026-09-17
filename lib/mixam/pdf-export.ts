@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
-import { loadSharp } from "../load-sharp";
+import sharp from "sharp";
 import { MIXAM_FINAL_CONFIGURATIONS } from "./configurations";
 import type { MixamBookVariant } from "./page-layout";
 
@@ -51,7 +51,6 @@ async function fetchImage(url: string, page: number) {
 }
 
 async function embedPrintImage(pdf: PDFDocument, source: Buffer, width: number, height: number) {
-  const sharp = await loadSharp();
   const jpeg = await sharp(source, { failOn: "none", animated: false })
     .rotate().flatten({ background: "#ffffff" })
     .resize({ width: Math.round(width / 72 * 200), height: Math.round(height / 72 * 200), fit: "inside", withoutEnlargement: true })
