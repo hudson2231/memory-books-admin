@@ -33,11 +33,17 @@ export async function POST(_: Request, context: { params: Promise<{ id: string }
     stage = "PAYLOAD";
     const address = mixamAddress(order);
     const externalOrderId = `memory-books-${order.id}`;
+    const itemSpecification = config.item_specification_json as { product?: unknown } | null;
+    if (!itemSpecification || typeof itemSpecification.product !== "string" || !itemSpecification.product) {
+      throw new Error("MIXAM_TEST_ORDER_REQUEST: saved item specification has no underlying Mixam product type.");
+    }
     const payload = {
       metadata: { externalOrderId, statusCallbackUrl: callbackUrl() },
       orderItems: [{
-        product: String(config.product_id), subProductId: Number(config.sub_product_id), quoteType: config.quote_type,
-        itemSpecification: config.item_specification_json, universalKey: config.universal_key, offerId: config.offer_id,
+        // Mixam Orders expects the underlying product enum (for example, BROCHURES), not its catalogue product ID.
+        // The validated universal key replaces the full offer-time component specification here.
+        product: itemSpecification.product, subProductId: Number(config.sub_product_id), quoteType: config.quote_type,
+        universalKey: config.universal_key, offerId: config.offer_id,
         assets: [{ url: fulfillment.cover_pdf_url, name: "cover.pdf" }, { url: fulfillment.body_pdf_url, name: "body.pdf" }],
         metadata: { externalItemId: `${externalOrderId}-book` },
       }],
