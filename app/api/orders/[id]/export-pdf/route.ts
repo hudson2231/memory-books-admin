@@ -12,8 +12,37 @@ import { addStoryCoverSpreadPage } from "../../../../../lib/story-cover-pdf";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+// Story exports fetch and process up to 40 source images before uploading the
+// finished PDF. The 20-page production order currently takes about 30 seconds,
+// so this route must not inherit Vercel's shorter default function duration.
+export const maxDuration = 300;
 
-const EXPORT_VERSION = "pdf-export-story-wrap-v8";
+const EXPORT_VERSION = "pdf-export-story-wrap-v9";
+
+type ExportStage =
+  | "ROUTE_STARTED"
+  | "ORDER_LOAD"
+  | "IMAGES_LOAD"
+  | "EXPORT_STATUS_UPDATE"
+  | "DOCUMENT_SETUP"
+  | "STORY_COVER_EMBED"
+  | "PAGE_GENERATION"
+  | "PDF_SAVE"
+  | "SUPABASE_UPLOAD"
+  | "ORDER_UPDATE";
+
+function logExportStage(
+  orderId: string,
+  stage: ExportStage,
+  details: Record<string, unknown> = {}
+) {
+  console.info("[pdf-export]", {
+    version: EXPORT_VERSION,
+    orderId,
+    stage,
+    ...details,
+  });
+}
 
 // Gelato template dimensions for:
 // glued-multi-page-brochures_pf_a4_pt_170-gsm-uncoated_cl_4-4_bt_glued-left_cpt_250-gsm-uncoated_ver
@@ -884,7 +913,12 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   const { id: orderId } = await context.params;
+  let exportStage: ExportStage = "ROUTE_STARTED";
+  const exportStartedAt = Date.now();
 
+  logExportStage(orderId, exportStage);
+
+  exportStage = "ORDER_LOAD";
   const { data: order, error: orderError } = await supabaseAdmin
     .from("orders")
     .select("*")
@@ -892,9 +926,14 @@ export async function POST(
     .single();
 
   if (orderError || !order) {
-    return NextResponse.json({ error: "Order not found." }, { status: 404 });
+    return NextResponse.json(
+      { error: "EXPORT_FAILED_STAGE_ORDER_LOAD: Order not found." },
+      { status: 404 }
+    );
   }
+  logExportStage(orderId, exportStage, { productType: order.product_type });
 
+  exportStage = "IMAGES_LOAD";
   const { data: images, error: imagesError } = await supabaseAdmin
     .from("order_images")
     .select("*")
@@ -904,17 +943,25 @@ export async function POST(
     .order("page_number", { ascending: true });
 
   if (imagesError) {
-    return NextResponse.json({ error: imagesError.message }, { status: 500 });
+    return NextResponse.json(
+      { error: "EXPORT_FAILED_STAGE_IMAGES_LOAD: " + imagesError.message },
+      { status: 500 }
+    );
   }
 
   if (!images || images.length === 0) {
     return NextResponse.json(
-      { error: "No approved generated pages found. Approve at least one page first." },
+      {
+        error:
+          "EXPORT_FAILED_STAGE_IMAGES_LOAD: No approved generated pages found. Approve at least one page first.",
+      },
       { status: 400 }
     );
   }
+  logExportStage(orderId, exportStage, { approvedImageCount: images.length });
 
-  await supabaseAdmin
+  exportStage = "EXPORT_STATUS_UPDATE";
+  const { error: exportStatusError } = await supabaseAdmin
     .from("orders")
     .update({
       pdf_status: "exporting",
@@ -922,7 +969,20 @@ export async function POST(
     })
     .eq("id", orderId);
 
+  if (exportStatusError) {
+    return NextResponse.json(
+      {
+        error:
+          "EXPORT_FAILED_STAGE_EXPORT_STATUS_UPDATE: " +
+          exportStatusError.message,
+      },
+      { status: 500 }
+    );
+  }
+  logExportStage(orderId, exportStage);
+
   try {
+    exportStage = "DOCUMENT_SETUP";
     const pdfDoc = await PDFDocument.create();
 
     const normalFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
@@ -931,6 +991,7 @@ export async function POST(
 
     const productType = getProductType(order);
     const isStoryBook = productType === "story_book";
+    logExportStage(orderId, exportStage, { productType });
 
     const pageWidth = A4_PAGE_WIDTH;
     const pageHeight = A4_PAGE_HEIGHT;
@@ -957,7 +1018,13 @@ export async function POST(
         "story-cover-wrap-v2-300dpi.jpg"
       );
 
+      exportStage = "STORY_COVER_EMBED";
       await addStoryCoverSpreadPage(pdfDoc, storyCoverWrapPath);
+      logExportStage(orderId, exportStage, {
+        coverPath: "public/covers/story-cover-wrap-v2-300dpi.jpg",
+      });
+
+      exportStage = "PAGE_GENERATION";
       addBlankPage(pdfDoc, storyPageWidth, storyPageHeight);
       addGracePage(pdfDoc, storyPageWidth, storyPageHeight, normalFont, boldFont, order);
       addBlankPage(pdfDoc, storyPageWidth, storyPageHeight);
@@ -992,6 +1059,7 @@ export async function POST(
         );
       }
     } else {
+      exportStage = "PAGE_GENERATION";
       const expectedArtworkPages = getExpectedArtworkPages(order, images.length);
       const colouringPagePlan = getColouringBookPagePlan(expectedArtworkPages);
 
@@ -1046,13 +1114,21 @@ export async function POST(
       }
     }
 
+    logExportStage(orderId, exportStage, { pageCount: pdfDoc.getPageCount() });
+    exportStage = "PDF_SAVE";
     const pdfBytes = await pdfDoc.save();
+    logExportStage(orderId, exportStage, {
+      bytes: pdfBytes.length,
+      pageCount: pdfDoc.getPageCount(),
+    });
 
     const orderSlug = slugify(order.customer_name || "order");
     const shortOrderId = order.id.slice(0, 8);
     const orderFolder = `${orderSlug}-${shortOrderId}`;
     const pdfPath = `${orderFolder}/memory-book-${Date.now()}.pdf`;
 
+    exportStage = "SUPABASE_UPLOAD";
+    logExportStage(orderId, exportStage, { pdfPath });
     const { error: uploadError } = await supabaseAdmin.storage
       .from("pdfs")
       .upload(pdfPath, Buffer.from(pdfBytes), {
@@ -1061,8 +1137,9 @@ export async function POST(
       });
 
     if (uploadError) {
-      throw new Error(`${EXPORT_VERSION}: PDF upload failed. ${uploadError.message}`);
+      throw new Error(EXPORT_VERSION + ": PDF upload failed. " + uploadError.message);
     }
+    logExportStage(orderId, exportStage, { pdfPath });
 
     const { data: publicUrlData } = supabaseAdmin.storage
       .from("pdfs")
@@ -1071,6 +1148,7 @@ export async function POST(
     const pdfUrl = publicUrlData.publicUrl;
     const exportedPages = pdfDoc.getPageCount();
 
+    exportStage = "ORDER_UPDATE";
     const { data: updatedOrder, error: updateError } = await supabaseAdmin
       .from("orders")
       .update({
@@ -1084,8 +1162,12 @@ export async function POST(
       .single();
 
     if (updateError) {
-      throw new Error(`${EXPORT_VERSION}: Order update failed. ${updateError.message}`);
+      throw new Error(EXPORT_VERSION + ": Order update failed. " + updateError.message);
     }
+    logExportStage(orderId, exportStage, {
+      elapsedMs: Date.now() - exportStartedAt,
+      pageCount: exportedPages,
+    });
 
     return NextResponse.json({
       ok: true,
@@ -1106,7 +1188,15 @@ export async function POST(
     const message =
       error instanceof Error ? error.message : `${EXPORT_VERSION}: Failed to export PDF.`;
 
-    console.error("PDF export failed:", message);
+    const stageError = "EXPORT_FAILED_STAGE_" + exportStage;
+
+    console.error("[pdf-export]", {
+      version: EXPORT_VERSION,
+      orderId,
+      stage: exportStage,
+      elapsedMs: Date.now() - exportStartedAt,
+      error: message,
+    });
 
     await supabaseAdmin
       .from("orders")
@@ -1119,7 +1209,8 @@ export async function POST(
       {
         ok: false,
         version: EXPORT_VERSION,
-        error: message,
+        stage: exportStage,
+        error: stageError + ": " + message,
       },
       { status: 500 }
     );
