@@ -8,11 +8,12 @@ import {
   getColouringBookPagePlan,
   getStoryBookPagePlan,
 } from "../../../../../lib/book-page-layout";
+import { addStoryCoverSpreadPage } from "../../../../../lib/story-cover-pdf";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const EXPORT_VERSION = "pdf-export-story-wrap-v7";
+const EXPORT_VERSION = "pdf-export-story-wrap-v8";
 
 // Gelato template dimensions for:
 // glued-multi-page-brochures_pf_a4_pt_170-gsm-uncoated_cl_4-4_bt_glued-left_cpt_250-gsm-uncoated_ver
@@ -29,8 +30,6 @@ const A4_EXPORT_HEIGHT_PX = 2386;
 // Gelato template dimensions for Story Books:
 // photobooks-softcover_pf_210x280-mm-8x11-inch_pt_170-gsm-65lb-coated-silk_cl_4-4_ccl_4-4_bt_glued-left_ct_matt-lamination_prt_1-0_cpt_250-gsm-100-lb-cover-coated-silk_ver
 // Page 1 is a wide cover spread. Pages 2+ are 21x28cm portrait pages with bleed.
-const STORY_COVER_SPREAD_WIDTH = 1215.72;
-const STORY_COVER_SPREAD_HEIGHT = 810.709;
 const STORY_PAGE_WIDTH = 612.283;
 const STORY_PAGE_HEIGHT = 810.709;
 
@@ -699,27 +698,6 @@ async function addColouringCoverSpreadPage(
   );
 }
 
-async function addStoryCoverSpreadPage(
-  pdfDoc: PDFDocument,
-  coverWrapPath: string
-) {
-  const page = pdfDoc.addPage([
-    STORY_COVER_SPREAD_WIDTH,
-    STORY_COVER_SPREAD_HEIGHT,
-  ]);
-  const coverWrap = await embedCoverPng(pdfDoc, coverWrapPath);
-
-  // The approved source is already the complete 428.879 x 286 mm wrap.
-  // Map it directly to the matching Gelato page box so it is not split into
-  // panels, offset, cropped, or resized to an interior-page format.
-  page.drawImage(coverWrap, {
-    x: 0,
-    y: 0,
-    width: STORY_COVER_SPREAD_WIDTH,
-    height: STORY_COVER_SPREAD_HEIGHT,
-  });
-}
-
 async function downloadImageBuffer(imageUrl: string, pageNumber: number) {
   const response = await fetch(imageUrl, {
     cache: "no-store",
@@ -976,7 +954,7 @@ export async function POST(
         process.cwd(),
         "public",
         "covers",
-        "story-cover-wrap-v2-300dpi.png"
+        "story-cover-wrap-v2-300dpi.jpg"
       );
 
       await addStoryCoverSpreadPage(pdfDoc, storyCoverWrapPath);
