@@ -1,5 +1,7 @@
 "use client";
 
+import { MixamPanel } from "../../../components/mixam-panel";
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -758,6 +760,8 @@ export default function OrderDetailPage() {
             </p>
           )}
         </section>
+
+        <MixamPanel orderId={orderId} canExport={approvedCount > 0 && !generating && !exportingPdf} />
 
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

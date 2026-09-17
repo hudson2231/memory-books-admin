@@ -12,6 +12,7 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
   const publicPaths = [
+    "/api/mixam/webhook",
     "/login",
     "/api/admin/login",
     "/api/shopify/order-paid",
