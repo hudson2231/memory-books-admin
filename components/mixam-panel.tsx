@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 type MixamFulfillment = {
   cover_pdf_url?: string | null; body_pdf_url?: string | null; supplier_status?: string | null;
   artwork_validation_status?: string | null; supplier_order_id?: string | null; quote_total?: number | null;
-  quote_currency?: string | null; quote_print_price?: number | null; quote_shipping_price?: number | null; quote_tax?: number | null; tracking_url?: string | null; tracking_number?: string | null; tracking_company?: string | null; delivery_courier?: string | null; delivery_service?: string | null; delivery_days_in_transit?: number | null; expected_dispatch_at?: string | null; expected_delivery_at?: string | null; error?: string | null; test_order?: boolean | null;
+  quote_currency?: string | null; quote_print_price?: number | null; quote_shipping_price?: number | null; quote_tax?: number | null; tracking_url?: string | null; tracking_number?: string | null; tracking_company?: string | null; delivery_courier?: string | null; delivery_service?: string | null; delivery_days_in_transit?: number | null; expected_dispatch_at?: string | null; expected_delivery_at?: string | null; error?: string | null; test_order?: boolean | null; submission_state?: string | null; submission_claimed_at?: string | null; submission_error_code?: string | null; submission_error_message?: string | null;
   supplier_product_configurations?: { configuration_key?: string; universal_key?: string; spine_mm?: number; price?: number; currency?: string; turnaround_days?: number; country_of_origin?: string } | null;
 };
 type ApiData = Record<string, unknown>;
@@ -73,6 +73,8 @@ export function MixamPanel({ orderId, canExport }: { orderId: string; canExport:
     finally { setBusy(null); }
   };
   const config = fulfillment?.supplier_product_configurations;
+  const submissionState = fulfillment?.submission_state || (fulfillment?.supplier_order_id ? "supplier_confirmed" : "not_sent");
+  const submissionBlocked = submissionState !== "not_sent";
   return <section className="mt-6 rounded-2xl border border-cyan-900/70 bg-cyan-950/20 p-5">
     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">Mixam migration</p><h3 className="mt-1 text-xl font-medium text-white">Mixam Test Mode</h3><p className="mt-1 text-sm text-cyan-100/70">TEST_ORDER only. No paid Mixam orders can be sent from this panel.</p></div>
@@ -80,11 +82,11 @@ export function MixamPanel({ orderId, canExport }: { orderId: string; canExport:
         <button onClick={() => void run("quote")} disabled={busy !== null} className="rounded-xl border border-cyan-700 px-4 py-2 text-sm text-cyan-200 disabled:opacity-50">{busy === "quote" ? "Quoting…" : "Get Mixam Quote"}</button>
         <button onClick={() => void run("export")} disabled={busy !== null || !canExport} className="rounded-xl border border-cyan-700 px-4 py-2 text-sm text-cyan-200 disabled:opacity-50">{busy === "export" ? "Exporting…" : "Export for Mixam"}</button>
         <button onClick={() => void previewRates()} disabled={busy !== null || !fulfillment?.supplier_order_id} className="rounded-xl border border-cyan-700 px-4 py-2 text-sm text-cyan-200 disabled:opacity-50">{busy === "rates" ? "Loading rates…" : "Preview Delivery Rates"}</button>
-        <button onClick={() => void run("send")} disabled={busy !== null || !fulfillment?.cover_pdf_url || !fulfillment?.body_pdf_url || Boolean(fulfillment?.supplier_order_id)} className="rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-cyan-950 disabled:opacity-50">{busy === "send" ? "Submitting…" : fulfillment?.supplier_order_id ? "Mixam Test Order Submitted" : "Send Mixam Test Order"}</button>
+        <button onClick={() => void run("send")} disabled={busy !== null || !fulfillment?.cover_pdf_url || !fulfillment?.body_pdf_url || submissionBlocked} className="rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-cyan-950 disabled:opacity-50">{busy === "send" ? "Submitting…" : submissionState === "supplier_confirmed" ? "Mixam Test Order Submitted" : submissionState === "submission_unknown" ? "Mixam Submission Needs Review" : submissionState === "submitting" ? "Mixam Submission In Progress" : "Send Mixam Test Order"}</button>
       </div>
     </div>
     <div className="mt-4 grid gap-2 text-sm text-cyan-50/85 sm:grid-cols-2">
-      <p>Status: {fulfillment?.supplier_status || "not exported"}</p><p>Artwork validation: {fulfillment?.artwork_validation_status || "not submitted"}</p>
+      <p>Status: {fulfillment?.supplier_status || "not exported"}</p><p>Submission: {submissionState === "not_sent" ? "Not sent" : submissionState === "submitting" ? "Submitting" : submissionState === "submission_unknown" ? "Outcome unknown — do not retry automatically" : "Supplier confirmed"}</p><p>Artwork validation: {fulfillment?.artwork_validation_status || "not submitted"}</p>
       <p>Config: {config?.configuration_key || "quote required"}</p><p>Print: {config?.currency || ""} {config?.price ?? "—"} {config ? "(shipping excluded)" : ""}</p>
       <p>Spine: {config?.spine_mm ?? "—"} mm · {config?.country_of_origin || "—"}</p><p>Turnaround: {config?.turnaround_days ?? "—"} production days</p>
       {fulfillment?.supplier_order_id && <p>Mixam order ID: {fulfillment.supplier_order_id}</p>}
@@ -104,6 +106,7 @@ export function MixamPanel({ orderId, canExport }: { orderId: string; canExport:
     </details>
     {ratePreview?.recommendation && <p className="mt-3 rounded-lg border border-cyan-900 bg-cyan-950/50 p-3 text-sm text-cyan-100">Delivery preview: {ratePreview.recommendation.rate ? `${ratePreview.recommendation.rate.courier || "Mixam"} ${ratePreview.recommendation.rate.service || "service"} · ${Number(ratePreview.recommendation.rate.cost || 0).toFixed(2)}${ratePreview.recommendation.rate.daysInTransit ? ` · ${ratePreview.recommendation.rate.daysInTransit} days` : ""}` : ratePreview.recommendation.reason} {ratePreview.recommendation.requiresOperatorReview ? "Operator review required." : "No rate was selected."}</p>}
     <div className="mt-3 flex gap-3 text-sm">{fulfillment?.cover_pdf_url && <a className="underline text-cyan-200" target="_blank" rel="noreferrer" href={fulfillment.cover_pdf_url}>Open cover PDF</a>}{fulfillment?.body_pdf_url && <a className="underline text-cyan-200" target="_blank" rel="noreferrer" href={fulfillment.body_pdf_url}>Open body PDF</a>}</div>
+    {submissionState === "submission_unknown" && <p className="mt-4 rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-sm text-amber-100">Supplier submission outcome is unknown. Do not retry automatically. Review Mixam status/webhook evidence or contact support before any manual resend.</p>}
     {message && <p className="mt-4 rounded-lg border border-cyan-900 bg-cyan-950/50 p-3 text-sm text-cyan-100">{message}</p>}
     {fulfillment?.error && <p className="mt-3 rounded-lg border border-red-900 bg-red-950/30 p-3 text-sm text-red-200">Mixam: {fulfillment.error}</p>}
   </section>;

@@ -645,6 +645,9 @@ export default function OrderDetailPage() {
               <p>Failed: {failedCount}</p>
               <p>PDF: {order.pdf_status || "not_exported"}</p>
               <p>Gelato: {order.gelato_status || "not_quoted"}</p>
+              {order.gelato_status === "submission_unknown" && (
+                <p className="text-amber-300">Gelato submission outcome is unknown — do not retry automatically. Reconcile with Gelato first.</p>
+              )}
               {order.gelato_page_count && (
                 <p>Gelato pages: {order.gelato_page_count}</p>
               )}

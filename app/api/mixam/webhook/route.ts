@@ -37,6 +37,12 @@ export async function POST(request: Request) {
   const rejection = value(payload, "error", "rejectionReason", "message") || null;
   const { error: updateError } = await supabaseAdmin.from("supplier_fulfillments").update({
     supplier_order_id: supplierOrderId || fulfillment.supplier_order_id,
+    submission_state: supplierOrderId ? "supplier_confirmed" : fulfillment.submission_state,
+    submission_confirmed_at: supplierOrderId
+      ? (fulfillment.submission_confirmed_at || new Date().toISOString())
+      : fulfillment.submission_confirmed_at,
+    submission_error_code: supplierOrderId ? null : fulfillment.submission_error_code,
+    submission_error_message: supplierOrderId ? null : fulfillment.submission_error_message,
     supplier_status: status,
     artwork_validation_status: artworkStatus,
     tracking_url: trackingUrl,

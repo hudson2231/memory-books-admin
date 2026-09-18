@@ -1,4 +1,11 @@
 import { supabaseAdmin } from "../supabaseAdmin";
+import {
+  claimSupplierSubmission,
+  confirmSupplierSubmission,
+  markSupplierSubmissionAttempted,
+  markSupplierSubmissionUnknown,
+  releaseSupplierSubmissionWithoutAttempt,
+} from "../supplier-submission";
 import { resolveFinalMixamConfiguration, selectStandardAustralianOffer } from "./configurations";
 import type { MixamBookVariant } from "./page-layout";
 
@@ -30,7 +37,7 @@ export async function refreshMixamConfiguration(key: MixamBookVariant) {
     .upsert(payload, { onConflict: "supplier,configuration_key" })
     .select("*")
     .single();
-  if (error) throw new Error(`MIXAM_CONFIG_SAVE: ${error.message}`);
+  if (error) throw new Error("MIXAM_CONFIG_SAVE: " + error.message);
   return { configuration: data, resolved, selected };
 }
 
@@ -52,6 +59,43 @@ export async function upsertMixamFulfillment(orderId: string, payload: Record<st
     .upsert({ order_id: orderId, supplier: "mixam", ...payload }, { onConflict: "order_id,supplier" })
     .select("*")
     .single();
-  if (error) throw new Error(`MIXAM_FULFILLMENT_SAVE: ${error.message}`);
+  if (error) throw new Error("MIXAM_FULFILLMENT_SAVE: " + error.message);
   return data;
+}
+
+export async function claimMixamTestSubmission(orderId: string) {
+  return claimSupplierSubmission(orderId, "mixam");
+}
+
+export async function markMixamSubmissionAttempted(orderId: string) {
+  return markSupplierSubmissionAttempted(orderId, "mixam");
+}
+
+export async function markMixamSubmissionUnknown(
+  orderId: string,
+  errorCode: string,
+  errorMessage: string
+) {
+  return markSupplierSubmissionUnknown(orderId, "mixam", errorCode, errorMessage);
+}
+
+export async function releaseMixamSubmissionWithoutAttempt(
+  orderId: string,
+  errorCode: string,
+  errorMessage: string
+) {
+  return releaseSupplierSubmissionWithoutAttempt(
+    orderId,
+    "mixam",
+    errorCode,
+    errorMessage
+  );
+}
+
+export async function confirmMixamSubmission(
+  orderId: string,
+  supplierOrderId: string,
+  payload: Record<string, unknown>
+) {
+  return confirmSupplierSubmission(orderId, "mixam", supplierOrderId, payload);
 }

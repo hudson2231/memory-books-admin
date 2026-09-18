@@ -4,6 +4,7 @@ import { getMixamVariantForOrder } from "../../../../../../lib/mixam/configurati
 import { createMixamPdfs } from "../../../../../../lib/mixam/pdf-export";
 import { getActiveMixamConfiguration, upsertMixamFulfillment } from "../../../../../../lib/mixam/store";
 import { safeMixamError } from "../../../../../../lib/mixam/order";
+import { submissionState } from "../../../../../../lib/supplier-submission";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,6 +23,22 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     stage = "IMAGES_LOAD";
     const { data: images, error: imagesError } = await supabaseAdmin.from("order_images").select("*").eq("order_id", orderId).eq("approved", true).order("page_number", { ascending: true });
     if (imagesError) throw new Error(`MIXAM_EXPORT_IMAGES_LOAD: ${imagesError.message}`);
+    stage = "FULFILLMENT_LOAD";
+    const { data: existingFulfillment, error: fulfillmentError } = await supabaseAdmin
+      .from("supplier_fulfillments")
+      .select("*")
+      .eq("order_id", orderId)
+      .eq("supplier", "mixam")
+      .maybeSingle();
+    if (fulfillmentError) throw new Error(`MIXAM_EXPORT_FULFILLMENT_LOAD: ${fulfillmentError.message}`);
+    if (existingFulfillment && (existingFulfillment.supplier_order_id || submissionState(existingFulfillment) !== "not_sent")) {
+      return NextResponse.json({
+        ok: false,
+        stage: "MIXAM_EXPORT_SUBMISSION_STATE",
+        message: "Mixam assets cannot be replaced while supplier submission is in progress, unknown, or confirmed.",
+        submissionState: submissionState(existingFulfillment),
+      }, { status: 409 });
+    }
     const variant = getMixamVariantForOrder(order);
     stage = "CONFIG_RESOLVED";
     const configuration = await getActiveMixamConfiguration(variant);

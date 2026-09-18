@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../../lib/supabaseAdmin";
 import { getFulfilmentRecipient, getShopifyShippingPreference, MixamDeliveryValidationError } from "../../../../../../lib/mixam/delivery";
+import { resolveStaleSupplierSubmission } from "../../../../../../lib/supplier-submission";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -9,6 +10,9 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const { id: orderId } = await context.params;
   const { data, error } = await supabaseAdmin.from("supplier_fulfillments").select("*, supplier_product_configurations(*)").eq("order_id", orderId).eq("supplier", "mixam").maybeSingle();
   if (error) return NextResponse.json({ ok: false, stage: "MIXAM_STATUS", message: error.message }, { status: 500 });
+  const fulfillment = data
+    ? (await resolveStaleSupplierSubmission(data, "mixam")).fulfillment
+    : null;
   const { data: order, error: orderError } = await supabaseAdmin.from("orders").select("*").eq("id", orderId).maybeSingle();
   if (orderError) return NextResponse.json({ ok: false, stage: "MIXAM_STATUS_ORDER", message: orderError.message }, { status: 500 });
   let recipient = null;
@@ -23,5 +27,5 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       deliveryValidation = { valid: false, message: error instanceof MixamDeliveryValidationError ? error.message : "Unable to validate delivery address." };
     }
   }
-  return NextResponse.json({ ok: true, fulfillment: data || null, recipient, customerShipping, deliveryValidation });
+  return NextResponse.json({ ok: true, fulfillment, recipient, customerShipping, deliveryValidation });
 }

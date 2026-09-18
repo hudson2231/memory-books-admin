@@ -297,33 +297,65 @@ export function getShippingAddress(order: Record<string, any>) {
 }
 
 
+export class GelatoApiError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly httpStatus?: number
+  ) {
+    super(message);
+  }
+}
+
 export async function callGelatoApi(url: string, payload: Record<string, any>) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-KEY": getGelatoApiKey(),
-    },
-    body: JSON.stringify(payload),
-  });
-
-  const text = await response.text();
-
-  let json: any = null;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    Number(process.env.GELATO_API_TIMEOUT_MS || 20_000)
+  );
 
   try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = { raw: text };
-  }
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-KEY": getGelatoApiKey(),
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      const code = controller.signal.aborted
+        ? "GELATO_TIMEOUT"
+        : "GELATO_NETWORK_ERROR";
+      throw new GelatoApiError(
+        code,
+        error instanceof Error ? error.message : "Gelato request failed before a definitive response."
+      );
+    }
 
-  if (!response.ok) {
-    throw new Error(
-      `Gelato API failed. HTTP ${response.status}. ${JSON.stringify(json)}`
-    );
-  }
+    const text = await response.text();
+    let json: any = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = { raw: text };
+    }
 
-  return json;
+    if (!response.ok) {
+      throw new GelatoApiError(
+        "GELATO_HTTP_" + response.status,
+        "Gelato API failed. HTTP " + response.status + ". " + JSON.stringify(json),
+        response.status
+      );
+    }
+
+    return json;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function pickBestShipmentMethod(quoteResponse: any) {
