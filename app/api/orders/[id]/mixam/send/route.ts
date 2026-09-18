@@ -37,6 +37,10 @@ export async function POST(_: Request, context: { params: Promise<{ id: string }
     if (!itemSpecification || typeof itemSpecification.product !== "string" || !itemSpecification.product) {
       throw new Error("MIXAM_TEST_ORDER_REQUEST: saved item specification has no underlying Mixam product type.");
     }
+    const copies = Number(order.quantity || 1);
+    if (!Number.isInteger(copies) || copies < 1) {
+      throw new Error("MIXAM_TEST_ORDER_REQUEST: order quantity must be a positive integer.");
+    }
     const payload = {
       metadata: { externalOrderId, statusCallbackUrl: callbackUrl() },
       orderItems: [{
@@ -48,7 +52,7 @@ export async function POST(_: Request, context: { params: Promise<{ id: string }
         metadata: { externalItemId: `${externalOrderId}-book` },
       }],
       billingAddress: address, invoiceAddress: address,
-      deliveries: [{ address, itemDeliveryDetails: [{ itemId: `${externalOrderId}-book`, copies: 1 }] }],
+      deliveries: [{ address, itemDeliveryDetails: [{ itemId: `${externalOrderId}-book`, copies }] }],
       plainPackaging: true,
       paymentMethod: "TEST_ORDER",
     };

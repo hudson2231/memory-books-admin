@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { buildMemoryBooksLineItemPlans } from "../../../../lib/shopify/line-item-import";
 
 type ShopifyAddress = {
   name?: string | null;
@@ -162,54 +163,6 @@ function extractUrlsFromText(value: string) {
   }
 
   return Array.from(urls);
-}
-
-function collectUploadUrls(input: unknown, urls = new Set<string>()) {
-  if (input === null || input === undefined) {
-    return urls;
-  }
-
-  if (typeof input === "string") {
-    for (const url of extractUrlsFromText(input)) {
-      const lower = url.toLowerCase();
-
-      if (
-        lower.includes("uploadkit") ||
-        lower.includes("cdn.shopify") ||
-        lower.includes("supabase.co/storage") ||
-        lower.includes("/storage/v1/object/public/originals/") ||
-        lower.includes("image=true") ||
-        lower.includes("download.html")
-      ) {
-        urls.add(url);
-      }
-    }
-
-    try {
-      const parsed = JSON.parse(input);
-      collectUploadUrls(parsed, urls);
-    } catch {
-      // normal plain string
-    }
-
-    return urls;
-  }
-
-  if (Array.isArray(input)) {
-    for (const item of input) {
-      collectUploadUrls(item, urls);
-    }
-
-    return urls;
-  }
-
-  if (typeof input === "object") {
-    for (const value of Object.values(input as Record<string, unknown>)) {
-      collectUploadUrls(value, urls);
-    }
-  }
-
-  return urls;
 }
 
 function buildUploadUrlCandidates(uploadUrl: string) {
@@ -394,304 +347,40 @@ async function downloadUploadFile(uploadUrl: string, fallbackIndex: number): Pro
   throw new Error(`Could not resolve UploadKit image file from ${uploadUrl}`);
 }
 
-function getCustomerName(order: Record<string, any>) {
-  const shipping = order.shipping_address || {};
-  const customer = order.customer || {};
-
-  return (
-    safeText(shipping.name) ||
-    safeText(`${customer.first_name || ""} ${customer.last_name || ""}`) ||
-    safeText(order.email) ||
-    "Shopify Customer"
-  );
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
 
-function getCustomerEmail(order: Record<string, any>) {
-  return (
-    safeText(order.email) ||
-    safeText(order.contact_email) ||
-    safeText(order.customer?.email) ||
-    "unknown@email.com"
-  );
+function getCustomerName(order: Record<string, unknown>) {
+  const shipping = asRecord(order.shipping_address);
+  const customer = asRecord(order.customer);
+  const name = [safeText(customer.first_name), safeText(customer.last_name)].filter(Boolean).join(" ");
+  return safeText(shipping.name) || safeText(name) || safeText(order.email) || "Shopify Customer";
 }
 
-function getPrimaryLineItem(order: Record<string, any>) {
-  const lineItems = Array.isArray(order.line_items) ? order.line_items : [];
-  return lineItems[0] || {};
+function getCustomerEmail(order: Record<string, unknown>) {
+  return safeText(order.email) || safeText(order.contact_email) || safeText(asRecord(order.customer).email) || "unknown@email.com";
 }
 
-function getShippingPrice(order: Record<string, any>) {
-  const shippingLines = Array.isArray(order.shipping_lines)
-    ? order.shipping_lines
-    : [];
-
-  if (shippingLines[0]?.price) {
-    return String(shippingLines[0].price);
-  }
-
-  return safeText(order.total_shipping_price_set?.shop_money?.amount);
+function getShippingPrice(order: Record<string, unknown>) {
+  const shippingLines = Array.isArray(order.shipping_lines) ? order.shipping_lines : [];
+  const first = asRecord(shippingLines[0]);
+  if (first.price) return String(first.price);
+  return safeText(asRecord(asRecord(order.total_shipping_price_set).shop_money).amount);
 }
-
-function inferPageCount(order: Record<string, any>) {
-  const lineItem = getPrimaryLineItem(order);
-
-  const variantTitle = safeText(lineItem.variant_title);
-  const title = safeText(lineItem.title);
-  const name = safeText(lineItem.name);
-  const combined = `${variantTitle || ""} ${title || ""} ${name || ""}`;
-
-  const match = combined.match(/(\d+)\s*(page|pages)/i);
-
-  if (match) {
-    return Number(match[1]);
-  }
-
-  return 20;
-}
-
-function inferProductType(order: Record<string, any>) {
-  const lineItem = getPrimaryLineItem(order);
-
-  const variantTitle = safeText(lineItem.variant_title);
-  const title = safeText(lineItem.title);
-  const name = safeText(lineItem.name);
-  const productType = safeText(lineItem.product_type);
-  const combined = `${variantTitle || ""} ${title || ""} ${name || ""} ${productType || ""}`.toLowerCase();
-
-  if (
-    combined.includes("story book") ||
-    combined.includes("storybook") ||
-    combined.includes("story-book") ||
-    combined.includes("clip art") ||
-    combined.includes("clip-art") ||
-    combined.includes("caption")
-  ) {
-    return "story_book";
-  }
-
-  return "colouring_book";
-}
-
-
-function propertyEntriesFromLineItem(lineItem: Record<string, any>) {
-  const properties = lineItem.properties;
-  const entries: Array<{ name: string; value: string }> = [];
-
-  if (Array.isArray(properties)) {
-    for (const property of properties) {
-      const name = safeText(property?.name);
-      const value = safeText(property?.value);
-
-      if (name && value) {
-        entries.push({ name, value });
-      }
-    }
-  } else if (properties && typeof properties === "object") {
-    for (const [rawName, rawValue] of Object.entries(properties)) {
-      const name = safeText(rawName);
-      const value = safeText(rawValue);
-
-      if (name && value) {
-        entries.push({ name, value });
-      }
-    }
-  }
-
-  return entries;
-}
-
-function normaliseCaption(value: string | null) {
-  if (!value) {
-    return null;
-  }
-
-  const cleaned = value
-    .replace(/\s+/g, " ")
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
-    .trim()
-    .slice(0, 180);
-
-  return cleaned.length > 0 ? cleaned : null;
-}
-
-function normaliseGraceValue(value: string | null, maxLength: number) {
-  if (!value) return null;
-
-  const cleaned = value
-    .replace(/\s+/g, " ")
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
-    .trim()
-    .slice(0, maxLength);
-
-  return cleaned.length > 0 ? cleaned : null;
-}
-
-function collectGraceFieldsFromEntries(entries: Array<{ name: string; value: string }>) {
-  let graceRecipient: string | null = null;
-  let graceFrom: string | null = null;
-  let graceMessage: string | null = null;
-
-  for (const entry of entries) {
-    const rawKey = entry.name || "";
-    const key = rawKey
-      .toLowerCase()
-      .replace(/[_-]+/g, " ")
-      .replace(/\s+/g, " ")
-      .replace(/[:*]/g, "")
-      .trim();
-
-    const value80 = normaliseGraceValue(entry.value, 80);
-    const value240 = normaliseGraceValue(entry.value, 240);
-
-    if (!value240) continue;
-
-    // Ignore upload/caption/page image properties.
-    if (
-      key.includes("upload") ||
-      key.includes("image") ||
-      key.includes("photo") ||
-      key.includes("caption") ||
-      key.match(/\bpage\s*\d+\b/)
-    ) {
-      continue;
-    }
-
-    if (
-      !graceRecipient &&
-      (
-        key === "to" ||
-        key === "for" ||
-        key === "made for" ||
-        key === "made especially for" ||
-        key === "recipient" ||
-        key === "gift recipient" ||
-        key === "gift to" ||
-        key === "who is this for"
-      )
-    ) {
-      graceRecipient = value80;
-      continue;
-    }
-
-    if (
-      !graceFrom &&
-      (
-        key === "from" ||
-        key === "sender" ||
-        key === "gift from" ||
-        key === "made by" ||
-        key === "from name" ||
-        key === "your name" ||
-        key === "who is this from"
-      )
-    ) {
-      graceFrom = value80;
-      continue;
-    }
-
-    if (
-      !graceMessage &&
-      (
-        key === "message" ||
-        key === "gift message" ||
-        key === "personal message" ||
-        key === "personalised message" ||
-        key === "personalized message" ||
-        key === "note" ||
-        key === "optional message" ||
-        key === "short message" ||
-        key === "dedication"
-      )
-    ) {
-      graceMessage = value240;
-      continue;
-    }
-  }
-
+function mapAddress(address: unknown, prefix: "shipping" | "billing") {
+  const value = asRecord(address) as ShopifyAddress;
   return {
-    graceRecipient,
-    graceFrom,
-    graceMessage,
-  };
-}
-
-function collectGraceFields(order: Record<string, any>, lineItem: Record<string, any>) {
-  const entries: Array<{ name: string; value: string }> = [];
-
-  entries.push(...propertyEntriesFromLineItem(lineItem));
-
-  if (Array.isArray(order.note_attributes)) {
-    for (const attribute of order.note_attributes) {
-      const name = safeText(attribute?.name);
-      const value = safeText(attribute?.value);
-
-      if (name && value) {
-        entries.push({ name, value });
-      }
-    }
-  }
-
-  if (Array.isArray(order.line_items)) {
-    for (const item of order.line_items) {
-      entries.push(...propertyEntriesFromLineItem(item));
-    }
-  }
-
-  return collectGraceFieldsFromEntries(entries);
-}
-
-function collectCaptions(lineItem: Record<string, any>, pageCount: number) {
-  const captions: Record<number, string> = {};
-  const entries = propertyEntriesFromLineItem(lineItem);
-
-  for (const entry of entries) {
-    const key = entry.name.toLowerCase().trim();
-    const value = normaliseCaption(entry.value);
-
-    if (!value) {
-      continue;
-    }
-
-    const numberedMatch = key.match(/(?:caption|page)\s*#?\s*(\d+)/i);
-
-    if (numberedMatch) {
-      const pageNumber = Number(numberedMatch[1]);
-
-      if (pageNumber >= 1 && pageNumber <= pageCount) {
-        captions[pageNumber] = value;
-      }
-
-      continue;
-    }
-
-    const alternativeMatch = key.match(/(?:caption|page)[-_\s]*(\d+)/i);
-
-    if (alternativeMatch) {
-      const pageNumber = Number(alternativeMatch[1]);
-
-      if (pageNumber >= 1 && pageNumber <= pageCount) {
-        captions[pageNumber] = value;
-      }
-    }
-  }
-
-  return captions;
-}
-
-function mapAddress(address: ShopifyAddress | null | undefined, prefix: "shipping" | "billing") {
-  return {
-    [`${prefix}_name`]: safeText(address?.name),
-    [`${prefix}_address1`]: safeText(address?.address1),
-    [`${prefix}_address2`]: safeText(address?.address2),
-    [`${prefix}_city`]: safeText(address?.city),
-    [`${prefix}_province`]: safeText(address?.province),
-    [`${prefix}_zip`]: safeText(address?.zip),
-    [`${prefix}_country`]: safeText(address?.country),
-    [`${prefix}_phone`]: safeText(address?.phone),
+    [`${prefix}_name`]: safeText(value.name),
+    [`${prefix}_address1`]: safeText(value.address1),
+    [`${prefix}_address2`]: safeText(value.address2),
+    [`${prefix}_city`]: safeText(value.city),
+    [`${prefix}_province`]: safeText(value.province),
+    [`${prefix}_zip`]: safeText(value.zip),
+    [`${prefix}_country`]: safeText(value.country),
+    [`${prefix}_phone`]: safeText(value.phone),
     ...(prefix === "shipping"
-      ? { shipping_country_code: safeText(address?.country_code) }
+      ? { shipping_country_code: safeText(value.country_code) }
       : {}),
   };
 }
@@ -707,175 +396,138 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const rawBody = await request.text();
-    const hmacHeader = request.headers.get("x-shopify-hmac-sha256");
+    verifyShopifyHmac(rawBody, request.headers.get("x-shopify-hmac-sha256"));
 
-    verifyShopifyHmac(rawBody, hmacHeader);
-
-    const order = JSON.parse(rawBody);
+    const order = JSON.parse(rawBody) as Record<string, unknown>;
     const shopifyOrderId = String(order.id || "");
     const shopifyOrderName = safeText(order.name) || safeText(order.order_number) || shopifyOrderId;
+    if (!shopifyOrderId) return NextResponse.json({ error: "Missing Shopify order ID." }, { status: 400 });
 
-    if (!shopifyOrderId) {
-      return NextResponse.json(
-        { error: "Missing Shopify order ID." },
-        { status: 400 }
-      );
-    }
-
-    const { data: existingOrder } = await supabaseAdmin
-      .from("orders")
-      .select("id")
-      .eq("shopify_order_id", shopifyOrderId)
-      .maybeSingle();
-
-    if (existingOrder) {
-      return NextResponse.json({
-        ok: true,
-        duplicate: true,
-        order_id: existingOrder.id,
-      });
-    }
-
+    const { plans, skipped } = buildMemoryBooksLineItemPlans(order);
     const customerName = getCustomerName(order);
     const customerEmail = getCustomerEmail(order);
-    const lineItem = getPrimaryLineItem(order);
-    const pageCount = inferPageCount(order);
-    const productType = inferProductType(order);
-    const captionsByPage = collectCaptions(lineItem, pageCount);
-    const graceFields = collectGraceFields(order, lineItem);
+    const jobs: Array<Record<string, unknown>> = [];
 
-    const uploadUrls = Array.from(collectUploadUrls(order.line_items || []));
+    for (const plan of plans) {
+      const { data: exactExisting, error: exactError } = await supabaseAdmin
+        .from("orders").select("*")
+        .eq("shopify_order_id", shopifyOrderId)
+        .eq("shopify_line_item_id", plan.lineItemId)
+        .maybeSingle();
+      if (exactError) throw new Error(`SHOPIFY_LINE_ITEM_LOOKUP: ${exactError.message}`);
 
-    const orderInsert = {
-      customer_name: customerName,
-      customer_email: customerEmail,
-      page_count: pageCount,
-      product_type: productType,
-      status: uploadUrls.length > 0 ? "shopify_imported" : "missing_uploads",
-      shopify_order_id: shopifyOrderId,
-      shopify_order_name: shopifyOrderName,
-      shopify_raw: order,
+      let bookJob = exactExisting;
+      // Historical single-book imports did not always have a persisted line ID.
+      // Reuse only when this webhook contains exactly one supported Memory Books line.
+      if (!bookJob && plans.length === 1) {
+        const { data: legacy, error: legacyError } = await supabaseAdmin
+          .from("orders").select("*")
+          .eq("shopify_order_id", shopifyOrderId)
+          .is("shopify_line_item_id", null)
+          .maybeSingle();
+        if (legacyError) throw new Error(`SHOPIFY_LEGACY_LOOKUP: ${legacyError.message}`);
+        bookJob = legacy;
+      }
 
-      grace_recipient: graceFields.graceRecipient,
-      grace_from: graceFields.graceFrom,
-      grace_message: graceFields.graceMessage,
+      if (!bookJob) {
+        const orderInsert = {
+          customer_name: customerName,
+          customer_email: customerEmail,
+          page_count: plan.pageCount,
+          product_type: plan.productType,
+          status: plan.uploadUrls.length ? "shopify_imported" : "missing_uploads",
+          shopify_order_id: shopifyOrderId,
+          shopify_order_name: shopifyOrderName,
+          shopify_line_item_id: plan.lineItemId,
+          shopify_customization_id: plan.customizationId,
+          shopify_raw: order,
+          grace_recipient: plan.graceRecipient,
+          grace_from: plan.graceFrom,
+          grace_message: plan.graceMessage,
+          ...mapAddress(order.shipping_address, "shipping"),
+          ...mapAddress(order.billing_address, "billing"),
+          product_title: plan.productTitle,
+          variant_title: plan.variantTitle,
+          quantity: plan.quantity,
+          currency: safeText(order.currency) || safeText(order.presentment_currency),
+          subtotal_price: safeText(order.subtotal_price),
+          shipping_price: getShippingPrice(order),
+          total_price: safeText(order.total_price),
+          financial_status: safeText(order.financial_status),
+          payment_gateway: Array.isArray(order.payment_gateway_names) ? order.payment_gateway_names.join(", ") : safeText(order.payment_gateway_names),
+          pod_status: "not_submitted",
+        };
+        const { data, error } = await supabaseAdmin.from("orders").insert(orderInsert).select("*").single();
+        if (error || !data) {
+          // With the planned composite unique index, a concurrent duplicate webhook
+          // can lose the insert race and safely load the already-created book job.
+          const { data: raced } = await supabaseAdmin.from("orders").select("*")
+            .eq("shopify_order_id", shopifyOrderId).eq("shopify_line_item_id", plan.lineItemId).maybeSingle();
+          if (!raced) throw new Error(error?.message || "Failed to create Shopify line-item book job.");
+          bookJob = raced;
+        } else bookJob = data;
+      }
 
-      ...mapAddress(order.shipping_address, "shipping"),
-      ...mapAddress(order.billing_address, "billing"),
+      const { data: existingImages, error: imagesError } = await supabaseAdmin
+        .from("order_images").select("page_number")
+        .eq("order_id", bookJob.id);
+      if (imagesError) throw new Error(`SHOPIFY_LINE_ITEM_IMAGES: ${imagesError.message}`);
+      const importedPages = new Set((existingImages || []).map((image) => Number(image.page_number)));
+      const orderFolder = `${slugify(customerName || "shopify-order")}-${bookJob.id.slice(0, 8)}`;
+      const failedUploads: Array<{ page: number; error: string }> = [];
+      let newlyImported = 0;
 
-      product_title: safeText(lineItem.title) || safeText(lineItem.name),
-      variant_title: safeText(lineItem.variant_title),
-      quantity: Number(lineItem.quantity || 1),
-      currency: safeText(order.currency) || safeText(order.presentment_currency),
-      subtotal_price: safeText(order.subtotal_price),
-      shipping_price: getShippingPrice(order),
-      total_price: safeText(order.total_price),
-      financial_status: safeText(order.financial_status),
-      payment_gateway: Array.isArray(order.payment_gateway_names)
-        ? order.payment_gateway_names.join(", ")
-        : safeText(order.payment_gateway_names),
-      pod_status: "not_submitted",
-    };
-
-    const { data: createdOrder, error: orderError } = await supabaseAdmin
-      .from("orders")
-      .insert(orderInsert)
-      .select("*")
-      .single();
-
-    if (orderError || !createdOrder) {
-      throw new Error(orderError?.message || "Failed to create Shopify order.");
-    }
-
-    const orderSlug = slugify(customerName || "shopify-order");
-    const shortOrderId = createdOrder.id.slice(0, 8);
-    const orderFolder = `${orderSlug}-${shortOrderId}`;
-
-    const uploadedImages = [];
-    const failedUploads = [];
-
-    for (let index = 0; index < uploadUrls.length; index += 1) {
-      const uploadUrl = uploadUrls[index];
-
-      try {
-        const file = await downloadUploadFile(uploadUrl, index + 1);
-
-        const safeFilename = slugify(file.filename.replace(/\.[^.]+$/, "")) || `page-${index + 1}`;
-        const extension =
-          file.filename.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") ||
-          file.contentType.split("/")[1] ||
-          "jpg";
-
-        const storagePath = `${orderFolder}/page-${index + 1}-${safeFilename}.${extension}`;
-
-        const { error: uploadError } = await supabaseAdmin.storage
-          .from("originals")
-          .upload(storagePath, file.buffer, {
-            contentType: file.contentType,
-            upsert: true,
-          });
-
-        if (uploadError) {
-          throw new Error(uploadError.message);
-        }
-
-        const { data: publicUrlData } = supabaseAdmin.storage
-          .from("originals")
-          .getPublicUrl(storagePath);
-
-        const { data: imageRow, error: imageError } = await supabaseAdmin
-          .from("order_images")
-          .insert({
-            order_id: createdOrder.id,
+      for (let index = 0; index < plan.uploadUrls.length; index += 1) {
+        const pageNumber = index + 1;
+        if (importedPages.has(pageNumber)) continue;
+        try {
+          const file = await downloadUploadFile(plan.uploadUrls[index], pageNumber);
+          const safeFilename = slugify(file.filename.replace(/\.[^.]+$/, "")) || `page-${pageNumber}`;
+          const extension = file.filename.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || file.contentType.split("/")[1] || "jpg";
+          const storagePath = `${orderFolder}/page-${pageNumber}-${safeFilename}.${extension}`;
+          const { error: uploadError } = await supabaseAdmin.storage.from("originals").upload(storagePath, file.buffer, { contentType: file.contentType, upsert: true });
+          if (uploadError) throw new Error(uploadError.message);
+          const { data: publicUrlData } = supabaseAdmin.storage.from("originals").getPublicUrl(storagePath);
+          const { error: imageError } = await supabaseAdmin.from("order_images").insert({
+            order_id: bookJob.id,
             original_url: publicUrlData.publicUrl,
             preview_url: file.previewUrl,
             original_filename: file.filename,
             mime_type: file.contentType,
-            page_number: index + 1,
-            caption_text: captionsByPage[index + 1] || null,
-            caption_source: captionsByPage[index + 1] ? "shopify" : "admin",
+            page_number: pageNumber,
+            caption_text: plan.captionsByPage[pageNumber] || null,
+            caption_source: plan.captionsByPage[pageNumber] ? "shopify" : "admin",
             status: "uploaded",
             approved: false,
             error_message: null,
-          })
-          .select("*")
-          .single();
-
-        if (imageError) {
-          throw new Error(imageError.message);
+          });
+          if (imageError) throw new Error(imageError.message);
+          newlyImported += 1;
+        } catch (error) {
+          failedUploads.push({ page: pageNumber, error: error instanceof Error ? error.message : "Upload import failed." });
         }
-
-        uploadedImages.push(imageRow);
-      } catch (error) {
-        failedUploads.push({
-          url: uploadUrl,
-          error: error instanceof Error ? error.message : "Upload import failed.",
-        });
       }
+
+      if (plan.uploadUrls.length === 0 || failedUploads.length > 0) {
+        const status = plan.uploadUrls.length === 0 ? "missing_uploads" : newlyImported ? "upload_import_partial" : "upload_import_failed";
+        await supabaseAdmin.from("orders").update({ status }).eq("id", bookJob.id);
+      }
+
+      jobs.push({
+        order_id: bookJob.id,
+        shopify_line_item_id: plan.lineItemId,
+        customization_id: plan.customizationId,
+        quantity: plan.quantity,
+        product_type: plan.productType,
+        page_count: plan.pageCount,
+        uploaded_images: newlyImported,
+        existing_images: importedPages.size,
+        failed_uploads: failedUploads,
+      });
     }
 
-    if (failedUploads.length > 0 && uploadedImages.length === 0) {
-      await supabaseAdmin
-        .from("orders")
-        .update({
-          status: "upload_import_failed",
-        })
-        .eq("id", createdOrder.id);
-    }
-
-    return NextResponse.json({
-      ok: true,
-      order_id: createdOrder.id,
-      uploaded_images: uploadedImages.length,
-      failed_uploads: failedUploads,
-    });
+    return NextResponse.json({ ok: true, shopify_order_id: shopifyOrderId, jobs, skipped_line_items: skipped });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Shopify webhook failed.";
-
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Shopify webhook failed." }, { status: 500 });
   }
 }

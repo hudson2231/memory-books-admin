@@ -285,8 +285,11 @@ function collectGraceFieldsFromShopifyRaw(order: Record<string, any>) {
   }
 
   const entries: Array<{ name: string; value: string }> = [];
+  const persistedLineItemId = String(order.shopify_line_item_id || "").trim();
 
-  if (Array.isArray(raw.note_attributes)) {
+  // Checkout note attributes do not belong to a particular personalization.
+  // Preserve this legacy fallback only for historical single-book records.
+  if (!persistedLineItemId && Array.isArray(raw.note_attributes)) {
     for (const attribute of raw.note_attributes) {
       const name = valueToCleanString(attribute?.name, 120);
       const value = valueToCleanString(attribute?.value, 500);
@@ -298,7 +301,11 @@ function collectGraceFieldsFromShopifyRaw(order: Record<string, any>) {
   }
 
   if (Array.isArray(raw.line_items)) {
-    for (const item of raw.line_items) {
+    const lineItems = persistedLineItemId
+      ? raw.line_items.filter((item: Record<string, unknown>) => String(item?.id || "").trim() === persistedLineItemId)
+      : raw.line_items;
+
+    for (const item of lineItems) {
       entries.push(...propertyEntriesFromLineItem(item));
     }
   }

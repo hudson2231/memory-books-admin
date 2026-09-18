@@ -35,6 +35,10 @@ type Order = {
   subtotal_price: string | number | null;
   currency: string | null;
   quantity: number | null;
+  shopify_order_id?: string | null;
+  shopify_order_name?: string | null;
+  shopify_line_item_id?: string | null;
+  shopify_customization_id?: string | null;
 };
 
 type OrderImage = {
@@ -628,6 +632,10 @@ export default function OrderDetailPage() {
             </div>
 
             <div className="rounded-2xl border border-neutral-800 bg-neutral-900 px-5 py-4 text-sm text-neutral-300">
+              {order.shopify_order_name && <p>Shopify: {order.shopify_order_name}</p>}
+              {order.shopify_line_item_id && <p>Line item: …{order.shopify_line_item_id.slice(-8)}</p>}
+              {order.shopify_customization_id && <p>Customization: …{order.shopify_customization_id.slice(-8)}</p>}
+              <p>Quantity: {order.quantity || 1}</p>
               <p>{order.page_count} page {productLabel}</p>
               <p>Product: {productLabel}</p>
               <p>Status: {order.status}</p>

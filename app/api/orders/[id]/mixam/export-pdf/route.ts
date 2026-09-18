@@ -46,6 +46,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     stage = "FULFILLMENT_SAVE";
     const fulfillment = await upsertMixamFulfillment(orderId, {
       configuration_id: configuration.id,
+      shopify_line_item_id: order.shopify_line_item_id || null,
       cover_pdf_url: coverUrl.publicUrl,
       body_pdf_url: bodyUrl.publicUrl,
       supplier_status: "assets_exported",

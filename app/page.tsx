@@ -19,6 +19,10 @@ type Order = {
   grace_from?: string | null;
   grace_recipient?: string | null;
   product_title?: string | null;
+  shopify_order_name?: string | null;
+  shopify_line_item_id?: string | null;
+  shopify_customization_id?: string | null;
+  quantity?: number | null;
   variant_title?: string | null;
   financial_status?: string | null;
   pod_status?: string | null;
@@ -1104,7 +1108,8 @@ export default function Home() {
                           </td>
 
                           <td className="px-5 py-4 text-neutral-300">
-                            {getProductLabel(order)}
+                            <div>{getProductLabel(order)}</div>
+                            {order.shopify_order_name && <p className="mt-1 text-xs text-neutral-500">{order.shopify_order_name} · line …{order.shopify_line_item_id?.slice(-8) || "legacy"} · qty {order.quantity || 1}</p>}
                           </td>
 
                           <td className="px-5 py-4 text-neutral-300">
