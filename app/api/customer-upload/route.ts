@@ -1,217 +1,78 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
+import crypto from "node:crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { MAX_IMAGE_FILES_PER_REQUEST, assertImageRequestBytes, ImageValidationError, validateImageBuffer } from "../../../lib/image-validation";
+import { verifyCustomerUploadAuthorization } from "../../../lib/customer-upload-token";
 
-const MAX_FILES = 40;
-const MAX_FILE_SIZE_MB = 25;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+export const runtime = "nodejs";
 
-const ALLOWED_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/webp",
-  "image/heic",
-  "image/heif",
-  "image/avif",
-  "image/gif",
-  "image/bmp",
-  "image/tiff",
-]);
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
-
-function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
+function allowedOrigins() {
+  return (process.env.CUSTOMER_UPLOAD_ALLOWED_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean);
 }
-
-function extensionFromFile(file: File) {
-  const originalExtension = file.name.split(".").pop();
-
-  if (originalExtension && /^[a-zA-Z0-9]+$/.test(originalExtension)) {
-    return originalExtension.toLowerCase();
-  }
-
-  const fromMime = file.type.split("/")[1];
-
-  if (fromMime) {
-    return fromMime.toLowerCase().replace("jpeg", "jpg");
-  }
-
-  return "jpg";
-}
-
-function mimeTypeFromFile(file: File) {
-  const extension = extensionFromFile(file);
-
-  if (file.type && file.type !== "application/octet-stream") {
-    return file.type;
-  }
-
-  const mimeByExtension: Record<string, string> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    webp: "image/webp",
-    heic: "image/heic",
-    heif: "image/heif",
-    avif: "image/avif",
-    gif: "image/gif",
-    bmp: "image/bmp",
-    tif: "image/tiff",
-    tiff: "image/tiff",
+function corsHeaders(request: Request) {
+  const configured = allowedOrigins();
+  const origin = request.headers.get("origin") || "";
+  if (configured.length && (!origin || !configured.includes(origin))) return null;
+  return {
+    "Access-Control-Allow-Origin": configured.length ? origin : "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Customer-Upload-Authorization",
+    "Vary": "Origin",
   };
-
-  return mimeByExtension[extension] || file.type || "application/octet-stream";
 }
-
-function makeUploadBatchId() {
-  return crypto.randomBytes(16).toString("hex");
+function json(body: unknown, request: Request, status = 200) {
+  const headers = corsHeaders(request);
+  if (!headers) return NextResponse.json({ error: "Origin is not allowed." }, { status: 403 });
+  return NextResponse.json(body, { status, headers });
 }
+function generatedBatchId() { return crypto.randomBytes(16).toString("hex"); }
+function tokenRequired() { return process.env.CUSTOMER_UPLOAD_TOKEN_REQUIRED === "true"; }
 
-function jsonResponse(body: unknown, status = 200) {
-  return NextResponse.json(body, {
-    status,
-    headers: corsHeaders,
-  });
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: corsHeaders,
-  });
+export async function OPTIONS(request: Request) {
+  const headers = corsHeaders(request);
+  return headers ? new NextResponse(null, { status: 204, headers }) : new NextResponse(null, { status: 403 });
 }
 
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
+    const token = String(formData.get("uploadAuthorization") || formData.get("upload_authorization") || request.headers.get("x-customer-upload-authorization") || "").trim() || null;
+    const verification = verifyCustomerUploadAuthorization(token);
+    if (tokenRequired() && !verification.valid) return json({ error: verification.reason }, request, 401);
+    if (!verification.valid) console.warn("[customer-upload] unsigned legacy upload accepted", { fileCount: formData.getAll("files").length });
 
-    const uploadBatchId =
-      String(formData.get("uploadBatchId") || "").trim() || makeUploadBatchId();
+    const requestedBatch = String(formData.get("uploadBatchId") || "").trim();
+    if (verification.valid && requestedBatch && requestedBatch !== verification.authorization.uploadBatchId) {
+      return json({ error: "Upload batch does not match the signed authorization." }, request, 400);
+    }
+    const uploadBatchId = verification.valid ? verification.authorization.uploadBatchId : requestedBatch || generatedBatchId();
+    const files = formData.getAll("files").filter((file): file is File => file instanceof File);
+    const maxFiles = verification.valid ? Math.min(MAX_IMAGE_FILES_PER_REQUEST, verification.authorization.maxFiles) : MAX_IMAGE_FILES_PER_REQUEST;
+    if (!files.length) return json({ error: "No files uploaded." }, request, 400);
+    if (files.length > maxFiles) return json({ error: "Too many files. Maximum is " + maxFiles + "." }, request, 400);
+    assertImageRequestBytes(files.reduce((total, file) => total + file.size, 0));
 
-    const productTitle = String(formData.get("productTitle") || "memory-book");
-    const variantTitle = String(formData.get("variantTitle") || "unknown-variant");
-
-    const files = formData
-      .getAll("files")
-      .filter((file): file is File => file instanceof File);
-
-    if (files.length === 0) {
-      return jsonResponse(
-        {
-          error: "No files uploaded.",
-        },
-        400
-      );
+    const prepared = [] as Array<{ file: File; bytes: Buffer; mimeType: string; extension: string }>;
+    for (const file of files) {
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const image = await validateImageBuffer(bytes, file.name || "Uploaded image");
+      prepared.push({ file, bytes, mimeType: image.mimeType, extension: image.extension });
     }
 
-    if (files.length > MAX_FILES) {
-      return jsonResponse(
-        {
-          error: `Too many files. Maximum is ${MAX_FILES}.`,
-        },
-        400
-      );
+    const requestFolder = crypto.randomUUID();
+    const uploaded = [] as Array<Record<string, unknown>>;
+    for (let index = 0; index < prepared.length; index += 1) {
+      const item = prepared[index];
+      const storagePath = "customer-uploads/" + requestFolder + "/" + crypto.randomUUID() + "." + item.extension;
+      const { error } = await supabaseAdmin.storage.from("originals").upload(storagePath, item.bytes, { contentType: item.mimeType, upsert: false });
+      if (error) throw new Error("CUSTOMER_UPLOAD_STORAGE: " + error.message);
+      const { data } = supabaseAdmin.storage.from("originals").getPublicUrl(storagePath);
+      uploaded.push({ url: data.publicUrl, filename: item.file.name, mime_type: item.mimeType, size: item.bytes.length, page_number: index + 1, storage_path: storagePath });
     }
-
-    const uploadedFiles = [];
-
-    for (let index = 0; index < files.length; index += 1) {
-      const file = files[index];
-
-      const detectedMimeType = mimeTypeFromFile(file);
-
-      if (!ALLOWED_MIME_TYPES.has(detectedMimeType)) {
-        return jsonResponse(
-          {
-            error: `Unsupported file type: ${detectedMimeType || file.type || "unknown"}.`,
-            filename: file.name,
-          },
-          400
-        );
-      }
-
-      if (file.size > MAX_FILE_SIZE_BYTES) {
-        return jsonResponse(
-          {
-            error: `${file.name} is too large. Maximum file size is ${MAX_FILE_SIZE_MB}MB.`,
-          },
-          400
-        );
-      }
-
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-
-      const safeProduct = slugify(productTitle) || "memory-book";
-      const safeVariant = slugify(variantTitle) || "variant";
-      const safeFilename = slugify(file.name.replace(/\.[^.]+$/, "")) || `image-${index + 1}`;
-      const extension = extensionFromFile(file);
-
-      const storagePath = [
-        "customer-uploads",
-        uploadBatchId,
-        safeProduct,
-        safeVariant,
-        `${String(index + 1).padStart(2, "0")}-${safeFilename}.${extension}`,
-      ].join("/");
-
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from("originals")
-        .upload(storagePath, buffer, {
-          contentType: detectedMimeType,
-          upsert: true,
-        });
-
-      if (uploadError) {
-        return jsonResponse(
-          {
-            error: uploadError.message,
-            filename: file.name,
-          },
-          500
-        );
-      }
-
-      const { data: publicUrlData } = supabaseAdmin.storage
-        .from("originals")
-        .getPublicUrl(storagePath);
-
-      uploadedFiles.push({
-        url: publicUrlData.publicUrl,
-        filename: file.name,
-        mime_type: detectedMimeType,
-        size: file.size,
-        page_number: index + 1,
-        storage_path: storagePath,
-      });
-    }
-
-    return jsonResponse({
-      ok: true,
-      upload_batch_id: uploadBatchId,
-      uploaded_count: uploadedFiles.length,
-      files: uploadedFiles,
-    });
+    return json({ ok: true, upload_batch_id: uploadBatchId, uploaded_count: uploaded.length, files: uploaded, authorization: verification.valid ? "signed" : "legacy_unsigned" }, request);
   } catch (error) {
-    return jsonResponse(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Customer upload failed.",
-      },
-      500
-    );
+    const status = error instanceof ImageValidationError ? error.status : 500;
+    const message = error instanceof Error ? error.message : "Customer upload failed.";
+    return json({ error: message }, request, status);
   }
 }

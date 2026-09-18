@@ -1,6 +1,8 @@
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
+import { ImageValidationError, validateImageBuffer } from "../../../../../lib/image-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +66,7 @@ export async function POST(
     }
 
     const inputBuffer = Buffer.from(await file.arrayBuffer());
+    await validateImageBuffer(inputBuffer, file.name || "manual-replacement");
 
     let jpgBuffer: Buffer;
 
@@ -87,13 +90,13 @@ export async function POST(
     const orderFolder = `${orderSlug}-${shortOrderId}`;
 
     const pageNumber = String(image.page_number || 1).padStart(2, "0");
-    const filePath = `${orderFolder}/manual-replacements/page-${pageNumber}-${Date.now()}.jpg`;
+    const filePath = orderFolder + "/manual-replacements/page-" + pageNumber + "-" + Date.now() + "-" + crypto.randomUUID() + ".jpg";
 
     const { error: uploadError } = await supabaseAdmin.storage
       .from("generated")
       .upload(filePath, jpgBuffer, {
         contentType: "image/jpeg",
-        upsert: true,
+        upsert: false,
       });
 
     if (uploadError) {
@@ -146,7 +149,8 @@ export async function POST(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to replace generated page.";
+    const status = error instanceof ImageValidationError ? error.status : 500;
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status });
   }
 }

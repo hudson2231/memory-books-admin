@@ -1,6 +1,8 @@
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { validateImageBuffer } from "../../../../lib/image-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -166,6 +168,7 @@ async function normaliseOriginalToJpg(params: {
   }
 
   const inputBuffer = Buffer.from(await downloadedFile.arrayBuffer());
+  await validateImageBuffer(inputBuffer, originalFilename);
 
   const normalisedBuffer = await convertToPrintSafeJpg({
     inputBuffer,
@@ -174,12 +177,14 @@ async function normaliseOriginalToJpg(params: {
     mimeType: originalMimeType,
   });
 
+  await validateImageBuffer(normalisedBuffer, originalFilename + ".normalised.jpg");
+
   const folder = getFolderFromPath(storagePath);
   const safeName = safePathPart(originalFilename.replace(/\.[^.]+$/, ""));
   const normalisedPath = [
     folder,
     "normalised",
-    `page-${String(pageNumber).padStart(2, "0")}-${safeName}.jpg`,
+    "page-" + String(pageNumber).padStart(2, "0") + "-" + safeName + "-" + crypto.randomUUID() + ".jpg",
   ]
     .filter(Boolean)
     .join("/");
@@ -203,7 +208,7 @@ async function normaliseOriginalToJpg(params: {
     .from("originals")
     .upload(normalisedPath, normalisedBlob, {
       contentType: "image/jpeg",
-      upsert: true,
+      upsert: false,
     });
 
   if (uploadError) {

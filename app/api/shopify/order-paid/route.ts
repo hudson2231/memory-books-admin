@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { buildMemoryBooksLineItemPlans } from "../../../../lib/shopify/line-item-import";
+import { validateImageBuffer } from "../../../../lib/image-validation";
+import { fetchApprovedRemoteUpload } from "../../../../lib/remote-upload-fetch";
 
 type ShopifyAddress = {
   name?: string | null;
@@ -105,21 +107,6 @@ function filenameFromUrl(uploadUrl: string, fallback: string) {
   return fallback;
 }
 
-function mimeFromUrl(uploadUrl: string) {
-  try {
-    const url = new URL(uploadUrl);
-    const encodedMime = url.searchParams.get("mi");
-    const decodedMime = decodeBase64UrlParam(encodedMime);
-
-    if (decodedMime) {
-      return decodedMime;
-    }
-  } catch {
-    // ignore
-  }
-
-  return null;
-}
 
 function uploadcarePreviewUrl(sourceUrl: string, contentType: string) {
   const normalizedType = contentType.toLowerCase();
@@ -270,12 +257,11 @@ function extractCandidatesFromHtml(html: string, baseUrl: string) {
 async function downloadUploadFile(uploadUrl: string, fallbackIndex: number): Promise<UploadFile> {
   const queue = buildUploadUrlCandidates(uploadUrl);
   const visited = new Set<string>();
+  let lastFailureCode = "REMOTE_SOURCE_UNRESOLVED";
 
   const fallbackFilename =
-    filenameFromUrl(uploadUrl, `shopify-upload-page-${fallbackIndex}.jpg`) ||
-    `shopify-upload-page-${fallbackIndex}.jpg`;
-
-  const urlMime = mimeFromUrl(uploadUrl);
+    filenameFromUrl(uploadUrl, "shopify-upload-page-" + fallbackIndex + ".jpg") ||
+    "shopify-upload-page-" + fallbackIndex + ".jpg";
 
   while (queue.length > 0) {
     const candidate = queue.shift();
@@ -286,65 +272,60 @@ async function downloadUploadFile(uploadUrl: string, fallbackIndex: number): Pro
 
     visited.add(candidate);
 
-    const response = await fetch(candidate, {
-      redirect: "follow",
-      headers: {
-        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        "User-Agent": "MemoryBooksWebhook/1.0",
-      },
-    });
+    try {
+      const remote = await fetchApprovedRemoteUpload({ url: candidate });
+      const contentType = remote.contentType.toLowerCase();
 
-    if (!response.ok) {
-      continue;
-    }
+      if (
+        contentType.startsWith("image/") ||
+        contentType.includes("application/octet-stream")
+      ) {
+        const validated = await validateImageBuffer(
+          remote.bytes,
+          fallbackFilename
+        );
+        const sourceFilename = filenameFromUrl(remote.finalUrl, fallbackFilename);
+        const filenameBase =
+          sourceFilename.replace(/\.[^.]+$/, "") ||
+          "shopify-upload-page-" + fallbackIndex;
 
-    const contentType = response.headers.get("content-type") || "";
-
-    if (contentType.toLowerCase().startsWith("image/")) {
-      const arrayBuffer = await response.arrayBuffer();
-
-      return {
-        buffer: Buffer.from(arrayBuffer),
-        contentType: contentType.split(";")[0],
-        filename: filenameFromUrl(candidate, fallbackFilename),
-        sourceUrl: candidate,
-        previewUrl: uploadcarePreviewUrl(
-          candidate,
-          contentType.split(";")[0]
-        ),
-      };
-    }
-
-    if (contentType.toLowerCase().includes("text/html")) {
-      const html = await response.text();
-      const htmlCandidates = extractCandidatesFromHtml(html, response.url || candidate);
-
-      for (const htmlCandidate of htmlCandidates) {
-        if (!visited.has(htmlCandidate)) {
-          queue.push(htmlCandidate);
-        }
+        return {
+          buffer: remote.bytes,
+          contentType: validated.mimeType,
+          filename: filenameBase + "." + validated.extension,
+          sourceUrl: remote.finalUrl,
+          previewUrl: uploadcarePreviewUrl(
+            remote.finalUrl,
+            validated.mimeType
+          ),
+        };
       }
 
-      continue;
-    }
+      if (contentType.includes("text/html")) {
+        const htmlCandidates = extractCandidatesFromHtml(
+          remote.bytes.toString("utf8"),
+          remote.finalUrl
+        );
 
-    if (
-      urlMime?.startsWith("image/") &&
-      contentType.toLowerCase().includes("application/octet-stream")
-    ) {
-      const arrayBuffer = await response.arrayBuffer();
-
-      return {
-        buffer: Buffer.from(arrayBuffer),
-        contentType: urlMime,
-        filename: fallbackFilename,
-        sourceUrl: candidate,
-        previewUrl: uploadcarePreviewUrl(candidate, urlMime),
-      };
+        for (const htmlCandidate of htmlCandidates) {
+          if (!visited.has(htmlCandidate)) {
+            queue.push(htmlCandidate);
+          }
+        }
+      }
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error) {
+        lastFailureCode = String((error as { code?: unknown }).code || lastFailureCode);
+      }
+      // Candidate failures are isolated to this upload source. Try another
+      // allowlisted direct-download candidate before reporting this book error.
     }
   }
 
-  throw new Error(`Could not resolve UploadKit image file from ${uploadUrl}`);
+  throw new Error(
+    "Shopify upload source was rejected or could not be resolved: " +
+      lastFailureCode
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -482,10 +463,9 @@ export async function POST(request: Request) {
         if (importedPages.has(pageNumber)) continue;
         try {
           const file = await downloadUploadFile(plan.uploadUrls[index], pageNumber);
-          const safeFilename = slugify(file.filename.replace(/\.[^.]+$/, "")) || `page-${pageNumber}`;
           const extension = file.filename.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || file.contentType.split("/")[1] || "jpg";
-          const storagePath = `${orderFolder}/page-${pageNumber}-${safeFilename}.${extension}`;
-          const { error: uploadError } = await supabaseAdmin.storage.from("originals").upload(storagePath, file.buffer, { contentType: file.contentType, upsert: true });
+          const storagePath = orderFolder + "/shopify-import/page-" + pageNumber + "-" + crypto.randomUUID() + "." + extension;
+          const { error: uploadError } = await supabaseAdmin.storage.from("originals").upload(storagePath, file.buffer, { contentType: file.contentType, upsert: false });
           if (uploadError) throw new Error(uploadError.message);
           const { data: publicUrlData } = supabaseAdmin.storage.from("originals").getPublicUrl(storagePath);
           const { error: imageError } = await supabaseAdmin.from("order_images").insert({
@@ -504,7 +484,14 @@ export async function POST(request: Request) {
           if (imageError) throw new Error(imageError.message);
           newlyImported += 1;
         } catch (error) {
-          failedUploads.push({ page: pageNumber, error: error instanceof Error ? error.message : "Upload import failed." });
+          const message = error instanceof Error ? error.message : "Upload import failed.";
+          console.warn("[shopify-upload-import]", {
+            orderId: bookJob.id,
+            lineItemId: plan.lineItemId,
+            pageNumber,
+            message,
+          });
+          failedUploads.push({ page: pageNumber, error: message });
         }
       }
 

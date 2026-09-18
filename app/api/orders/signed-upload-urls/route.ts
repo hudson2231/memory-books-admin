@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
@@ -86,13 +87,13 @@ export async function POST(request: Request) {
       const extension = getFileExtension(filename) || "jpg";
       const mimeType = getMimeType(filename, file.type);
 
-      const path = `${orderFolder}/page-${index + 1}-original.${extension}`;
+      const path = orderFolder + "/upload-intake/" + crypto.randomUUID() + "." + extension;
 
       const { data: signedData, error: signedError } =
         await supabaseAdmin.storage
           .from("originals")
           .createSignedUploadUrl(path, {
-            upsert: true,
+            upsert: false,
           });
 
       if (signedError || !signedData) {
