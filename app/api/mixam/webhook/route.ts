@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { getLatestMixamShipment } from "../../../../lib/mixam/shipping";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,8 +30,8 @@ export async function POST(request: Request) {
   const { data: fulfillment, error } = await query.maybeSingle();
   if (error) return NextResponse.json({ ok: false, stage: "MIXAM_WEBHOOK_LOOKUP", message: error.message }, { status: 500 });
   if (!fulfillment) return NextResponse.json({ ok: true, ignored: true });
-  const shipment = (payload.shipment && typeof payload.shipment === "object" ? payload.shipment : {}) as Record<string, unknown>;
-  const trackingUrl = value(shipment, "trackingUrl", "tracking_url") || value(payload, "trackingUrl", "tracking_url") || null;
+  const shipment = getLatestMixamShipment(payload);
+  const trackingUrl = shipment?.trackingUrl || value(payload, "trackingUrl", "tracking_url") || null;
   const status = value(payload, "status", "fulfillmentStatus", "state") || fulfillment.supplier_status;
   const artworkStatus = value(payload, "artworkStatus", "artworkValidationStatus", "validationStatus") || fulfillment.artwork_validation_status;
   const rejection = value(payload, "error", "rejectionReason", "message") || null;
@@ -39,6 +40,10 @@ export async function POST(request: Request) {
     supplier_status: status,
     artwork_validation_status: artworkStatus,
     tracking_url: trackingUrl,
+    tracking_number: shipment?.trackingNumber || null,
+    tracking_company: shipment?.courier || null,
+    delivery_courier: shipment?.courier || null,
+    dispatched_at: shipment?.dispatchedAt || null,
     error: rejection,
     raw_supplier_payload: payload,
     last_supplier_event_at: new Date().toISOString(),

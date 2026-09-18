@@ -91,6 +91,52 @@ export type MixamOfferResponse = {
   [key: string]: unknown;
 };
 
+export type MixamDeliveryRate = {
+  serviceId: string;
+  courier?: string;
+  courierCode?: string;
+  service?: string;
+  serviceCode?: string;
+  cost: number;
+  daysInTransit?: number;
+  /** Retained only if an account response supplies it; not required by the published schema. */
+  currency?: string;
+  currencyCode?: string;
+};
+
+export type MixamDeliveryRatesResponse = {
+  weight?: number;
+  dispatchDate?: string;
+  includeShipment?: boolean;
+  deliveryRates: MixamDeliveryRate[];
+};
+
+export type MixamDeliveryGroup = {
+  id: string;
+  serviceId?: string;
+  courier?: string;
+  courierCode?: string;
+  service?: string;
+  serviceCode?: string;
+  cost?: number;
+  dispatchDate?: string;
+  deliveryDate?: string;
+  includeShipment?: boolean;
+};
+
+export type MixamOrderDelivery = {
+  id: string;
+  deliveryGroups?: MixamDeliveryGroup[];
+};
+
+export type MixamOrder = {
+  id: string;
+  orderStatus?: string;
+  deliveries?: MixamOrderDelivery[];
+  shipments?: Array<Record<string, unknown>>;
+  orderItems?: Array<Record<string, unknown>>;
+};
+
 export type MixamSavedConfiguration = {
   key: "story_20" | "story_32" | "story_40" | "colouring_20" | "colouring_32" | "colouring_40";
   productId: number;

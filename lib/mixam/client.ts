@@ -3,6 +3,8 @@ import type {
   MixamOfferResponse,
   MixamProduct,
   MixamProductMetadata,
+  MixamDeliveryRatesResponse,
+  MixamOrder,
 } from "./types";
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -107,6 +109,24 @@ export function createMixamOrder(payload: Record<string, unknown>) {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function getMixamOrder(orderId: string) {
+  const response = await request<{ order?: MixamOrder } | MixamOrder>(`/api/public/orders/${encodeURIComponent(orderId)}`);
+  return "order" in response && response.order ? response.order : response as MixamOrder;
+}
+
+export function getMixamDeliveryRates(orderId: string, destinationId: string, deliveryGroupId: string) {
+  return request<MixamDeliveryRatesResponse>(
+    `/api/public/orders/${encodeURIComponent(orderId)}/destinations/${encodeURIComponent(destinationId)}/delivery-groups/${encodeURIComponent(deliveryGroupId)}/available-rates`
+  );
+}
+
+export function selectMixamDeliveryRate(orderId: string, destinationId: string, deliveryGroupId: string, rateId: string) {
+  return request<null>(
+    `/api/public/orders/${encodeURIComponent(orderId)}/destinations/${encodeURIComponent(destinationId)}/delivery-groups/${encodeURIComponent(deliveryGroupId)}/selected-rate/${encodeURIComponent(rateId)}`,
+    { method: "PATCH" }
+  );
 }
 
 export function getMixamUserOrders() {

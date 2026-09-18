@@ -52,6 +52,39 @@ export function formatAmount(
   return `${currencyLabel ? `${currencyLabel} ` : ""}${amount.toFixed(2)}`;
 }
 
+/** Supplier cost is distinct from Shopify shipping revenue. */
+export type SupplierFulfilmentCostInput = {
+  printCost?: string | number | null;
+  shippingCost?: string | number | null;
+  tax?: string | number | null;
+  currency?: string | null;
+  customerShippingRevenue?: string | number | null;
+};
+
+export type SupplierFulfilmentCost = {
+  printCost: number | null;
+  supplierShippingCost: number | null;
+  tax: number | null;
+  total: number | null;
+  currency: string | null;
+  customerShippingRevenue: number | null;
+};
+
+export function calculateSupplierFulfilmentCost(input: SupplierFulfilmentCostInput): SupplierFulfilmentCost {
+  const printCost = toValidAmount(input.printCost);
+  const supplierShippingCost = toValidAmount(input.shippingCost);
+  const tax = toValidAmount(input.tax);
+  const components = [printCost, supplierShippingCost, tax];
+  const total = components.every((component) => component !== null)
+    ? (printCost || 0) + (supplierShippingCost || 0) + (tax || 0)
+    : null;
+  return {
+    printCost, supplierShippingCost, tax, total,
+    currency: normalizeCurrency(input.currency),
+    customerShippingRevenue: toValidAmount(input.customerShippingRevenue),
+  };
+}
+
 export function calculateCostEstimate(input: CostEstimateInput): CostEstimate {
   const totalPrice = toValidAmount(input.totalPrice);
   const subtotalPrice = toValidAmount(input.subtotalPrice);

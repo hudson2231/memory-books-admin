@@ -1,0 +1,16 @@
+alter table public.supplier_fulfillments
+  add column if not exists customer_shipping_method_title text,
+  add column if not exists customer_shipping_method_code text,
+  add column if not exists customer_shipping_paid numeric,
+  add column if not exists customer_shipping_preference text check (customer_shipping_preference in ('standard', 'express', 'unknown')),
+  add column if not exists quote_tax numeric,
+  add column if not exists delivery_rate_id text,
+  add column if not exists delivery_service_id text,
+  add column if not exists delivery_courier text,
+  add column if not exists delivery_service text,
+  add column if not exists delivery_days_in_transit integer,
+  add column if not exists expected_dispatch_at timestamptz,
+  add column if not exists expected_delivery_at timestamptz,
+  add column if not exists tracking_number text,
+  add column if not exists tracking_company text,
+  add column if not exists dispatched_at timestamptz;
