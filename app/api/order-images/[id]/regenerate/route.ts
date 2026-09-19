@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import {
   generateColoringWithFal,
   generateStorybookWithGemini,
-  getAspectRatioForImage,
   getMimeTypeFromUrl,
   getProductType,
   getPromptForOrder,
@@ -10,6 +9,17 @@ import {
   slugify,
   uploadGeneratedBuffer,
 } from "../../../../../lib/image-generation";
+import {
+  acquireGenerationProviderSlot,
+  claimOrderImageGeneration,
+  markGenerationAttempted,
+  markGenerationFailure,
+  markGenerationSuccess,
+  providerForProductType,
+  releaseGenerationClaimWithoutAttempt,
+  releaseGenerationProviderSlot,
+  withBoundedProviderRetry,
+} from "../../../../../lib/generation-reliability";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 
 const MAX_REGENERATION_INSTRUCTION_LENGTH = 800;
@@ -83,8 +93,8 @@ function buildStoryBookRegenerationBooster(instruction: string | null) {
 }
 
 function buildRegenerationPrompt(
-  order: Record<string, any>,
-  image: Record<string, any>,
+  order: Record<string, unknown>,
+  image: Record<string, unknown>,
   instruction: string | null
 ) {
   const isStoryBook = getProductType(order) === "story_book";
@@ -194,14 +204,25 @@ export async function POST(
     );
   }
 
+  const claim = await claimOrderImageGeneration(image.id, "regenerate");
+  if (!claim.claimed) {
+    const message = claim.reason === "in_progress"
+      ? "This page is already being generated elsewhere. Refresh shortly."
+      : claim.reason === "stale_claim_resolved"
+        ? "A stale generation claim was made retryable. Retry this page once more."
+        : "This page cannot be regenerated in its current state.";
+    return NextResponse.json({ error: message, generation_reason: claim.reason }, { status: 409 });
+  }
+
+  let slot: Awaited<ReturnType<typeof acquireGenerationProviderSlot>> = null;
   try {
-    await supabaseAdmin
-      .from("order_images")
-      .update({
-        status: "generating",
-        error_message: null,
-      })
-      .eq("id", image.id);
+    slot = await acquireGenerationProviderSlot(providerForProductType(productType));
+    if (!slot) {
+      await releaseGenerationClaimWithoutAttempt(image.id, claim);
+      return NextResponse.json({ error: "Generation capacity is currently in use. Retry shortly.", generation_reason: "provider_capacity" }, { status: 429 });
+    }
+
+    await markGenerationAttempted(image.id, claim.claimId);
 
     const promptText = buildRegenerationPrompt(
       order,
@@ -210,20 +231,23 @@ export async function POST(
     );
     const promptVersion = getPromptVersionForOrder(order);
 
-    const generated =
+    const generated = await withBoundedProviderRetry(() =>
       productType === "story_book"
-        ? await generateStorybookWithGemini({
+        ? generateStorybookWithGemini({
             promptText,
             originalUrl: image.original_url,
             mimeType: image.mime_type || getMimeTypeFromUrl(image.original_url),
             previousGeneratedUrl: image.generated_url || null,
           })
-        : await generateColoringWithFal({
+        : generateColoringWithFal({
             promptText,
             originalUrl: image.original_url,
             previousGeneratedUrl: image.generated_url || null,
             aspectRatio: "3:4",
-          });
+          })
+    );
+    await releaseGenerationProviderSlot(slot).catch((releaseError) => console.error("Unable to release generation provider slot:", releaseError));
+    slot = null;
 
     const orderSlug = slugify(order.customer_name || "order");
     const shortOrderId = order.id.slice(0, 8);
@@ -255,24 +279,15 @@ export async function POST(
         ]
       : existingHistory;
 
-    const { data: updatedImage, error: updateError } = await supabaseAdmin
-      .from("order_images")
-      .update({
-        generated_url: generatedUrl,
-        status: "generated",
-        approved: false,
-        error_message: null,
-        model_used: generated.modelUsed,
-        prompt_version: promptVersion,
-        generated_at: new Date().toISOString(),
-        last_regeneration_instruction: regenerationInstruction,
-        regeneration_history: regenerationHistory,
-      })
-      .eq("id", image.id)
-      .select("*")
-      .single();
-
-    if (updateError) throw new Error(updateError.message);
+    const updatedImage = await markGenerationSuccess(image.id, claim.claimId, {
+      generated_url: generatedUrl,
+      approved: false,
+      model_used: generated.modelUsed,
+      prompt_version: promptVersion,
+      generated_at: new Date().toISOString(),
+      last_regeneration_instruction: regenerationInstruction,
+      regeneration_history: regenerationHistory,
+    });
 
     await supabaseAdmin
       .from("orders")
@@ -292,13 +307,9 @@ export async function POST(
     const message =
       error instanceof Error ? error.message : "Unknown generation error.";
 
-    await supabaseAdmin
-      .from("order_images")
-      .update({
-        status: "failed",
-        error_message: message,
-      })
-      .eq("id", image.id);
+    await markGenerationFailure(image.id, claim, "regeneration_failed", message).catch((failureError) => {
+      console.error("Unable to persist regeneration failure:", failureError);
+    });
 
     await supabaseAdmin
       .from("orders")
@@ -308,5 +319,11 @@ export async function POST(
       .eq("id", order.id);
 
     return NextResponse.json({ error: message }, { status: 500 });
+  } finally {
+    if (slot) {
+      await releaseGenerationProviderSlot(slot).catch((releaseError) => {
+        console.error("Unable to release generation provider slot:", releaseError);
+      });
+    }
   }
 }
