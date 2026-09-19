@@ -58,7 +58,18 @@ async function embedPrintImage(pdf: PDFDocument, source: Buffer, width: number, 
   return pdf.embedJpg(jpeg);
 }
 
-function addBlank(pdf: PDFDocument, geometry: MixamGeometry) { return pdf.addPage([geometry.bodyWidthPt, geometry.bodyHeightPt]); }
+function setMixamPageBoxes(page: PDFPage, widthPt: number, heightPt: number) {
+  const bleedPt = mm(BLEED_MM);
+  page.setMediaBox(0, 0, widthPt, heightPt);
+  page.setBleedBox(0, 0, widthPt, heightPt);
+  page.setTrimBox(bleedPt, bleedPt, widthPt - bleedPt * 2, heightPt - bleedPt * 2);
+}
+
+function addBlank(pdf: PDFDocument, geometry: MixamGeometry) {
+  const page = pdf.addPage([geometry.bodyWidthPt, geometry.bodyHeightPt]);
+  setMixamPageBoxes(page, geometry.bodyWidthPt, geometry.bodyHeightPt);
+  return page;
+}
 
 function drawGrace(page: PDFPage, geometry: MixamGeometry, order: Record<string, unknown>, font: Awaited<ReturnType<PDFDocument["embedFont"]>>) {
   const recipient = String(order.grace_recipient || "").trim();
@@ -85,6 +96,7 @@ function drawGuides(page: PDFPage, geometry: MixamGeometry) {
 
 async function addCover(pdf: PDFDocument, variant: MixamBookVariant, geometry: MixamGeometry, debug: boolean) {
   const page = pdf.addPage([geometry.coverWidthPt, geometry.coverHeightPt]);
+  setMixamPageBoxes(page, geometry.coverWidthPt, geometry.coverHeightPt);
   const source = variant.startsWith("story")
     ? path.join(process.cwd(), "public", "covers", "story-cover-wrap-v2-300dpi.jpg")
     : path.join(process.cwd(), "public", "covers", "backgrounds", "goodcover.png");
