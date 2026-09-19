@@ -99,7 +99,7 @@ async function addCover(pdf: PDFDocument, variant: MixamBookVariant, geometry: M
   setMixamPageBoxes(page, geometry.coverWidthPt, geometry.coverHeightPt);
   const source = variant.startsWith("story")
     ? path.join(process.cwd(), "public", "covers", "story-cover-wrap-v2-300dpi.jpg")
-    : path.join(process.cwd(), "public", "covers", "backgrounds", "goodcover.png");
+    : path.join(process.cwd(), "public", "covers", "colouring-cover-approved-300dpi.png");
   const buffer = await fs.readFile(source);
   const image = await embedPrintImage(pdf, buffer, geometry.coverWidthPt, geometry.coverHeightPt);
   const scale = Math.max(geometry.coverWidthPt / image.width, geometry.coverHeightPt / image.height);
