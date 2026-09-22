@@ -10,7 +10,6 @@ const BLEED_MM = 3;
 const TRIM_WIDTH_MM = 210;
 const TRIM_HEIGHT_MM = 297;
 const MIXAM_QUIET_MM = 12;
-const COLOURING_GUTTER_MM = 24;
 
 export type MixamGeometry = {
   spineMm: number;
@@ -173,11 +172,14 @@ async function addInteriorImage(pdf: PDFDocument, geometry: MixamGeometry, url: 
   const image = await embedPrintImage(pdf, await fetchImage(url, pageNumber), geometry.bodyWidthPt, geometry.bodyHeightPt);
   const page = addBlank(pdf, geometry);
   const isRightHandPage = pdf.getPageCount() % 2 === 1;
-  const inner = mm(colouring ? COLOURING_GUTTER_MM : MIXAM_QUIET_MM);
-  const outer = mm(MIXAM_QUIET_MM);
+  // Colouring pages are always recto, so their protected PUR binding edge is
+  // left. Reserve only the approved 12 mm quiet area there; let the artwork
+  // use the rest of the trim rather than creating a second large outer margin.
+  const inner = mm(MIXAM_QUIET_MM);
+  const outer = colouring ? mm(BLEED_MM) : mm(MIXAM_QUIET_MM);
   const left = isRightHandPage ? inner : outer;
   const right = isRightHandPage ? outer : inner;
-  const topBottom = mm(MIXAM_QUIET_MM);
+  const topBottom = colouring ? mm(BLEED_MM) : mm(MIXAM_QUIET_MM);
   const captionHeight = !colouring && caption ? 46 : 0;
   const availableWidth = geometry.bodyWidthPt - left - right;
   const availableHeight = geometry.bodyHeightPt - topBottom * 2 - captionHeight;
