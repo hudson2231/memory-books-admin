@@ -71,18 +71,80 @@ function addBlank(pdf: PDFDocument, geometry: MixamGeometry) {
   return page;
 }
 
+function drawCenteredText(page: PDFPage, text: string, font: Awaited<ReturnType<PDFDocument["embedFont"]>>, size: number, y: number, pageWidth: number, color: ReturnType<typeof rgb>) {
+  page.drawText(text, { x: (pageWidth - font.widthOfTextAtSize(text, size)) / 2, y, size, font, color });
+}
+
+function wrapGraceTextByWidth(text: string, font: Awaited<ReturnType<PDFDocument["embedFont"]>>, size: number, maxWidth: number) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && font.widthOfTextAtSize(candidate, size) > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
 function drawGrace(page: PDFPage, geometry: MixamGeometry, order: Record<string, unknown>, font: Awaited<ReturnType<PDFDocument["embedFont"]>>) {
-  const recipient = String(order.grace_recipient || "").trim();
-  const from = String(order.grace_from || "").trim();
-  const message = String(order.grace_message || "").trim();
+  const recipient = String(order.grace_recipient || "").trim().slice(0, 80);
+  const from = String(order.grace_from || "").trim().slice(0, 80);
+  const message = String(order.grace_message || "").trim().slice(0, 240);
   const width = geometry.bodyWidthPt;
   const height = geometry.bodyHeightPt;
+  const gold = rgb(0.58, 0.43, 0.19);
+  const paleGold = rgb(0.76, 0.64, 0.42);
+  const darkGreen = rgb(0.035, 0.16, 0.095);
+  const charcoal = rgb(0.24, 0.22, 0.2);
+  const outer = 22;
+  const inner = 31;
+  const corner = 42;
+
   page.drawRectangle({ x: 0, y: 0, width, height, color: rgb(1, 1, 1) });
-  page.drawText("M E M O R Y   B O O K S", { x: width / 2 - 75, y: height - 105, size: 13, font, color: rgb(0.58, 0.43, 0.19) });
-  page.drawText("Made Especially for You", { x: width / 2 - 120, y: height - 205, size: 28, font, color: rgb(0.04, 0.16, 0.10) });
-  if (recipient) page.drawText(`TO  ${recipient}`, { x: 72, y: height - 300, size: 17, font, color: rgb(0.12, 0.12, 0.12) });
-  if (from) page.drawText(`FROM  ${from}`, { x: 72, y: height - 345, size: 17, font, color: rgb(0.12, 0.12, 0.12) });
-  if (message) page.drawText(message.slice(0, 220), { x: 72, y: height - 420, size: 13, font, color: rgb(0.18, 0.18, 0.18), maxWidth: width - 144, lineHeight: 18 });
+  page.drawRectangle({ x: outer, y: outer, width: width - outer * 2, height: height - outer * 2, borderColor: gold, borderWidth: 0.65 });
+  page.drawRectangle({ x: inner, y: inner, width: width - inner * 2, height: height - inner * 2, borderColor: paleGold, borderWidth: 0.35 });
+
+  page.drawLine({ start: { x: outer, y: height - corner }, end: { x: outer + corner, y: height - corner }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: outer + corner, y: height - outer }, end: { x: outer + corner, y: height - corner }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: width - outer, y: height - corner }, end: { x: width - outer - corner, y: height - corner }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: width - outer - corner, y: height - outer }, end: { x: width - outer - corner, y: height - corner }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: outer, y: corner }, end: { x: outer + corner, y: corner }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: outer + corner, y: outer }, end: { x: outer + corner, y: corner }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: width - outer, y: corner }, end: { x: width - outer - corner, y: corner }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: width - outer - corner, y: outer }, end: { x: width - outer - corner, y: corner }, thickness: 0.45, color: paleGold });
+
+  drawCenteredText(page, "M E M O R Y   B O O K S", font, 15, height - 112, width, gold);
+  page.drawLine({ start: { x: width / 2 - 35, y: height - 132 }, end: { x: width / 2 - 8, y: height - 132 }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: width / 2 + 8, y: height - 132 }, end: { x: width / 2 + 35, y: height - 132 }, thickness: 0.45, color: paleGold });
+  page.drawCircle({ x: width / 2, y: height - 132, size: 1.6, color: gold });
+
+  drawCenteredText(page, "Made Especially", font, 60, height - 225, width, darkGreen);
+  drawCenteredText(page, "for You", font, 54, height - 287, width, darkGreen);
+  page.drawLine({ start: { x: width / 2 - 38, y: height - 335 }, end: { x: width / 2 - 7, y: height - 335 }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: width / 2 + 7, y: height - 335 }, end: { x: width / 2 + 38, y: height - 335 }, thickness: 0.45, color: paleGold });
+  page.drawCircle({ x: width / 2, y: height - 335, size: 1.5, color: gold });
+
+  drawCenteredText(page, "TO", font, 11, height - (recipient ? 420 : 435), width, gold);
+  if (recipient) drawCenteredText(page, recipient, font, 22, height - 450, width, darkGreen);
+  drawCenteredText(page, "FROM", font, 11, height - (from ? 500 : 515), width, gold);
+  if (from) drawCenteredText(page, from, font, 22, height - 530, width, darkGreen);
+
+  if (message) {
+    const messageFontSize = 17;
+    const lines = wrapGraceTextByWidth(message, font, messageFontSize, width - 140);
+    lines.forEach((line, index) => drawCenteredText(page, line, font, messageFontSize, height - 610 - index * 23, width, charcoal));
+  }
+
+  page.drawLine({ start: { x: width / 2 - 28, y: 104 }, end: { x: width / 2 - 7, y: 104 }, thickness: 0.45, color: paleGold });
+  page.drawLine({ start: { x: width / 2 + 7, y: 104 }, end: { x: width / 2 + 28, y: 104 }, thickness: 0.45, color: paleGold });
+  page.drawCircle({ x: width / 2, y: 104, size: 1.6, color: gold });
+  drawCenteredText(page, "A  G I F T  O F  M E M O R I E S  T O  K E E P  F O R E V E R .", font, 9, 70, width, gold);
 }
 
 function drawGuides(page: PDFPage, geometry: MixamGeometry) {
